@@ -87,7 +87,7 @@ graph TD
 
 ![Data Flow Diagram](assets/diagrams/data-flow.png)
 
-> Data flow color key: compute (teal), peripherals (orange), drivers (blue).
+> Data flow color key: compute (teal), peripherals (orange), drivers (blue), motors (red).
 
 <details>
 <summary>Mermaid source</summary>
@@ -109,6 +109,16 @@ graph LR
         StepperTilt["Tilt Driver\nStep / Dir / Enable"]
     end
 
+    subgraph StepperMotors24["24 V Stepper Motors"]
+        MotorLeft["Left Wheel Motor\nA-/A+/B-/B+"]
+        MotorRight["Right Wheel Motor\nA-/A+/B-/B+"]
+    end
+
+    subgraph StepperMotors12["12 V Stepper Motors"]
+        MotorPan["Pan Motor\nA-/A+/B-/B+"]
+        MotorTilt["Tilt Motor\nA-/A+/B-/B+"]
+    end
+
     Pi -->|HDMI| Projector
     Pi -->|USB 3.0| Kinect
     Pi -->|USB| Controller
@@ -125,13 +135,32 @@ graph LR
     Pi -->|GPIO: Dir| StepperTilt
     Pi -->|GPIO: Enable| StepperTilt
 
+    StepperL -->|A+| MotorLeft
+    StepperL -->|A-| MotorLeft
+    StepperL -->|B+| MotorLeft
+    StepperL -->|B-| MotorLeft
+    StepperR -->|A+| MotorRight
+    StepperR -->|A-| MotorRight
+    StepperR -->|B+| MotorRight
+    StepperR -->|B-| MotorRight
+    StepperPan -->|A+| MotorPan
+    StepperPan -->|A-| MotorPan
+    StepperPan -->|B+| MotorPan
+    StepperPan -->|B-| MotorPan
+    StepperTilt -->|A+| MotorTilt
+    StepperTilt -->|A-| MotorTilt
+    StepperTilt -->|B+| MotorTilt
+    StepperTilt -->|B-| MotorTilt
+
     class Pi compute
     class Projector,Kinect,Controller peripheral
     class StepperL,StepperR,StepperPan,StepperTilt driver
+    class MotorLeft,MotorRight,MotorPan,MotorTilt motor
 
     classDef compute fill:#8dd3c7,stroke:#238b45,color:#00441b,stroke-width:1.5px
     classDef peripheral fill:#fdb462,stroke:#d95f02,color:#7f2704,stroke-width:1.5px
     classDef driver fill:#88b3e1,stroke:#1f78b4,color:#08306b,stroke-width:1.5px
+    classDef motor fill:#fb8072,stroke:#e31a1c,color:#67000d,stroke-width:2px
 ```
 
 > Rendered with `scripts/render-mermaid.ps1 -DiagramIndex 1 -OutputPath assets/diagrams/data-flow.png`. Run the script after editing the Mermaid source below to refresh the image.
