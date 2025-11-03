@@ -1,0 +1,11 @@
+{
+  "name": "marp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "render:mermaid": "pwsh ./scripts/render-mermaid.ps1"
+  },
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^10.9.0"
+  }
+}
