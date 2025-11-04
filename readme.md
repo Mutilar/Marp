@@ -38,9 +38,10 @@ graph TD
         Stepper12Pan["Pan Driver\nDRV8825 (≈1 A)"]
         Stepper12Tilt["Tilt Driver\nDRV8825 (≈1 A)"]
     end
-    Projector["Mini Projector\n12 V, 2.5 A"]
+    Projector["NEBULA Capsule Air\nUSB-C PD (≤45 W)"]
     Audio["Audio Amp + Speakers\n5 V via Pi"]
     Pi["Raspberry Pi 5 + Storage\n5 V, ≤5.4 A"]
+    Arduino["Arduino Mega 2560\n5 V I²C bridge"]
     Kinect["Kinect & USB Peripherals\n5 V, ≤2 A"]
     LEDs["Addressable LEDs & Logic\n5 V, ≤3 A"]
 
@@ -52,9 +53,10 @@ graph TD
     Buck12 --> Stepper12Tilt
     Buck12 --> Projector
     FuseBlock --> FuseBuck5 --> Buck5 --> Pi
+    Buck5 --> Arduino
     Pi --> Audio
     Pi --> Kinect
-    Pi -->|5 V via Pi| LEDs
+    Arduino -->|5 V logic| LEDs
     Stepper24Left --> LeftWheel["Left Wheel KH56"]
     Stepper24Right --> RightWheel["Right Wheel KH56"]
     Stepper12Pan --> HeadPan["Head Pan M55"]
@@ -66,6 +68,7 @@ graph TD
     class Stepper24Left,Stepper24Right,Stepper12Pan,Stepper12Tilt driver
     class Buck12,Buck5 converter
     class Pi compute
+    class Arduino compute
     class Projector,Audio,Kinect,LEDs peripheral
     class LeftWheel,RightWheel,HeadPan,HeadTilt motor
 
@@ -95,9 +98,10 @@ graph TD
 ```mermaid
 graph LR
     Pi["Raspberry Pi 5\nCore compute & control"]
-    Projector["Mini Projector\nHDMI sink"]
+    Projector["NEBULA Capsule Air\nHDMI sink"]
     Kinect["Xbox Kinect Sensor\nUSB 3.0"]
     Controller["Xbox Controller Adapter\nUSB"]
+    Arduino["Arduino Mega 2560\nI²C co-processor"]
 
     subgraph StepperDrivers24["24 V TB6600 Stepper Drivers"]
         StepperL["Left Driver\nStep / Dir / Enable"]
@@ -119,21 +123,37 @@ graph LR
         MotorTilt["Tilt Motor\nA-/A+/B-/B+"]
     end
 
+    subgraph SensorCluster["Sensors"]
+        UltrasonicArray["Ultrasonic Pairs\nTrigger / Echo"]
+        LiDARArray["LiDAR Array\nI²C / UART"]
+    end
+
+    subgraph LimitSwitches["Limit Switches"]
+        PanLimit["Pan Home Switch\nDigital"]
+        ShutterLimit["Shutter Home Switch\nDigital"]
+    end
+
+    subgraph ShutterActuation["Shutter Actuation"]
+        ShutterDriver["Shutter Driver\nPWM / Dir / Enable"]
+        ShutterMotor["Shutter Motor\nType TBD"]
+    end
+
     Pi -->|HDMI| Projector
     Pi -->|USB 3.0| Kinect
     Pi -->|USB| Controller
-    Pi -->|GPIO: Step| StepperL
-    Pi -->|GPIO: Dir| StepperL
-    Pi -->|GPIO: Enable| StepperL
-    Pi -->|GPIO: Step| StepperR
-    Pi -->|GPIO: Dir| StepperR
-    Pi -->|GPIO: Enable| StepperR
-    Pi -->|GPIO: Step| StepperPan
-    Pi -->|GPIO: Dir| StepperPan
-    Pi -->|GPIO: Enable| StepperPan
-    Pi -->|GPIO: Step| StepperTilt
-    Pi -->|GPIO: Dir| StepperTilt
-    Pi -->|GPIO: Enable| StepperTilt
+    Pi -->|I²C commands| Arduino
+    Arduino -->|Status telemetry| Pi
+    Arduino -->|Step / Dir / Enable| StepperL
+    Arduino -->|Step / Dir / Enable| StepperR
+    Arduino -->|Step / Dir / Enable| StepperPan
+    Arduino -->|Step / Dir / Enable| StepperTilt
+    Arduino -->|PWM / Dir| ShutterDriver
+    Arduino -->|Trigger| UltrasonicArray
+    UltrasonicArray -->|Echo timing| Arduino
+    LiDARArray -->|Range frames| Arduino
+    Arduino -->|Sync / power| LiDARArray
+    PanLimit -->|Closed / Open| Arduino
+    ShutterLimit -->|Closed / Open| Arduino
 
     StepperL -->|A+| MotorLeft
     StepperL -->|A-| MotorLeft
@@ -151,11 +171,12 @@ graph LR
     StepperTilt -->|A-| MotorTilt
     StepperTilt -->|B+| MotorTilt
     StepperTilt -->|B-| MotorTilt
+    ShutterDriver -->|Motor power| ShutterMotor
 
-    class Pi compute
-    class Projector,Kinect,Controller peripheral
-    class StepperL,StepperR,StepperPan,StepperTilt driver
-    class MotorLeft,MotorRight,MotorPan,MotorTilt motor
+    class Pi,Arduino compute
+    class Projector,Kinect,Controller,UltrasonicArray,LiDARArray,PanLimit,ShutterLimit peripheral
+    class StepperL,StepperR,StepperPan,StepperTilt,ShutterDriver driver
+    class MotorLeft,MotorRight,MotorPan,MotorTilt,ShutterMotor motor
 
     classDef compute fill:#8dd3c7,stroke:#238b45,color:#00441b,stroke-width:1.5px
     classDef peripheral fill:#fdb462,stroke:#d95f02,color:#7f2704,stroke-width:1.5px
@@ -169,8 +190,9 @@ graph LR
 ## Control & Compute
 | Component | Role | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Controller | Primary operator input | 5 | ≤1.5 | ≤7.5 | Gamepad form factor | [Xbox](https://www.xbox.com/en-US/accessories/controllers/elite-wireless-controller-series-2) | Wireless or USB |
-| Pi 5 | Onboard coordination & processing | 5 | ≤5.4 | ≤27 | 3.35" × 2.20" × 0.71" | [Raspberry](https://www.raspberrypi.com/products/raspberry-pi-5/) | Wi-Fi / Bluetooth / USB; CSI/DSI; 16 GB RAM, 64 GB SD. |
+| Controller | Primary operator input | 5 | ≤1.5 | ≤7.5 | Gamepad form factor | [Xbox Elite Controller](https://www.xbox.com/en-US/accessories/controllers/elite-wireless-controller-series-2) | Wireless or USB |
+| Computer | Onboard coordination & processing | 5 | ≤5.4 | ≤27 | 3.35" × 2.20" × 0.71" | [Raspberry Pi 5](https://www.raspberrypi.com/products/raspberry-pi-5/) | Wi-Fi / Bluetooth / USB; CSI/DSI; 16 GB RAM, 64 GB SD. |
+| Microcontroller | Motion & sensor co-processor | 5 | ≤0.5 | ≤2.5 | 4.00" × 2.10" × 0.60" | [Arduino Mega 2560](https://store.arduino.cc/products/arduino-mega-2560-rev3) | I²C bridge coordinating drivers, sensors, and limit switches. |
 
 ## Locomotion
 | Component | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
@@ -186,6 +208,8 @@ graph LR
 | Head pan | 12 | 1.0 | 12 | Ø2.17" × 0.98" | [Mitsumi](https://product.minebeamitsumi.com/en/product/category/rotary/steppingmotor/pm/PMStandardtype.html) | M55SP-3NK Stepper Motor (stocked on [Radwell](https://www.radwell.com/Buy/MITSUMI/MITSUMI/M55SP-2NK)) |
 | Head tilt | 12 | 1.0 | 12 | Ø2.17" × 0.98" | [Mitsumi](https://product.minebeamitsumi.com/en/product/category/rotary/steppingmotor/pm/PMStandardtype.html) | M55SP-3NK Stepper Motor (stocked on [Radwell](https://www.radwell.com/Buy/MITSUMI/MITSUMI/M55SP-2NK)) |
 | Drivers | 12 | ≤2.0 | ≤24 | 0.8" × 0.6" | [Jeanoko](https://www.amazon.com/dp/B0C4P8997M) | DRV8825/A4988 × 2 |
+| Shutter motor driver | TBD | TBD | TBD | TBD | — | H-bridge driver; 5 V logic with 12 V motor rail; commanded by Arduino. |
+| Shutter motor | TBD | TBD | TBD | TBD | — | Motorized projector shutter (non-stepper); homed via limit switch. |
 
 ## Power & Electronics
 | Component | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
@@ -204,14 +228,21 @@ graph LR
 ### Distance & Environment
 | Sensor | Range / Resolution | Coverage | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Ultrasonic pair (x2 sets) | Short-range (TBD) | Front/Rear or side placements TBD | 5 | ≤0.015 | ≤0.075 | ~1.77" × 0.79" modules | — | Use overlapping fields to reduce blind spots. |
-| Single-direction LiDARs (~10) | Spec TBD | 360° array via multiple units | TBD | TBD | TBD | TBD | — | Define spacing and mounting for uniform perimeter sensing. |
+| Ultrasonic pair (x2 sets) | Short-range (TBD) | Front/Rear or side placements TBD | 5 | ≤0.015 | ≤0.075 | ~1.77" × 0.79" modules | — | Use overlapping fields to reduce blind spots; polled by Arduino over I²C link to Pi. |
+| Single-direction LiDARs (~10) | Spec TBD | 360° array via multiple units | TBD | TBD | TBD | TBD | — | Define spacing and mounting for uniform perimeter sensing; prefer I²C/RS485 variants managed by Arduino. |
+
+### Contact & Limit Sensing
+
+| Component | Role | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Pan home limit switch | Homing reference for head pan axis | 5 | ≤0.02 | ≤0.1 | TBD | — | Wired to Arduino digital input with pull-up; defines zero position. |
+| Shutter home limit switch | Homing reference for projector shutter | 5 | ≤0.02 | ≤0.1 | TBD | — | Confirms shutter closed position; debounced on Arduino. |
 
 ### Vision & Interaction
 | Component | Function | Coverage / Resolution | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Xbox Kinect | Depth + RGB sensing, Pose detection | Wide FoV; structured light | 5 | ≤2 | ≤10 | 11" × 2.6" × 1.5" | [OpenKinect](https://github.com/OpenKinect/libfreenect) | Confirm Raspberry Pi compatibility or plan for companion compute. |
-| Mini Projector | Visual output | 1080p | 12 | 2.5 | 27 | 5.5" × 2.36" × 4.33" | [CiBest](https://www.amazon.com/dp/B0DRCRK3BQ?ref=ppx_yo2ov_dt_b_fed_asin_title) | Validate mounting, airflow, and HDMI cabling to Pi 5. |
+| Mini Projector | Visual output | 720p (150 ANSI) | 5–20 (USB-C PD) | ≤2.25 | ≤45 | Ø2.7" × 5.5" | [NEBULA Capsule Air](https://www.amazon.com/dp/B0CWV1S7B4?ref=ppx_yo2ov_dt_b_fed_asin_title&th=1) | Built-in 34 Wh battery; integrate 45 W USB-C PD or leverage internal pack. |
 | Camera | Vision input | 12 MP, 75° FoV; autofocus | 5 | ≤0.5 | ≤2.5 | 1.50" × 1.50" × 0.71" (w/ adapter) | [Arducam](https://www.amazon.com/dp/B0C9PYCV9S?ref=ppx_yo2ov_dt_b_fed_asin_title) | IMX708 |
 | Addressable LED strip | Face ring | Pixel count TBD | 5 | ≤0.06 (per LED) | ≤0.3 (per 5 LEDs) | Flexible strip | — | Level-shift 3.3 V logic up to 5 V. |
 
@@ -225,21 +256,27 @@ graph LR
 | Item | Status | Next Step |
 | --- | --- | --- |
 | Head stepper motor selection | Pending | Determine torque requirements and mechanical constraints. |
-| Projector specification | Pending | Evaluate models for brightness, interface, and mounting. |
+| Projector specification | Selected | Locked on NEBULA Capsule Air (720p, 150 ANSI); confirm PD power profile. |
 | Sensor placement plan | Pending | Draft layout for ultrasonic and LiDAR modules; validate wiring paths. |
 | Power budget verification | Pending | Sum draw across motors, compute, sensors, and converters; size fuses accordingly. |
-| Projector integration | In progress | Design bracket and power branch for 12 V, 2.5 A load; verify HDMI adapter fit. |
+| Projector integration | In progress | Design mount plus USB-C PD (45 W) power delivery and verify HDMI link to Pi 5. |
+| Arduino firmware architecture | Pending | Define I²C command protocol between Pi and Arduino; map driver and sensor update loops. |
+| Shutter motor/driver selection | Pending | Choose H-bridge module and projector shutter motor torque requirements. |
+| Limit switch hardware | Pending | Select housing and lever style for pan/shutter homing switches; confirm wiring strain relief. |
 
 ## I/O & Pin Planning
 | Device / Bus | Qty | Pins (each) | Total Pins | Notes |
 | --- | --- | --- | --- | --- |
-| 24 V stepper drivers (L/R) | 2 | Step, Dir, Enable (3) | 6 | TB6600 opto-isolated inputs; share enable line if wiring permits. |
-| 12 V stepper drivers (pan/tilt) | 2 | Step, Dir, Enable (3) | 6 | Reserve two GPIOs for limit/home sensing. |
-| Ultrasonic modules | 2 | Trigger, Echo (2) | 4 | Consider HC-SR04-compatible interface. |
-| LiDAR modules | ~10 | I²C (shared 2) or UART (2 each) | 2–20 | Prioritize I²C/RS485 variants to conserve GPIO. |
+| Arduino co-processor | 1 | SDA, SCL (2) | 2 | I²C link from Raspberry Pi to Arduino Mega for motion & sensor fan-out. |
+| 24 V stepper drivers (L/R) | 2 | Step, Dir, Enable (3) | 6 | TB6600 opto-isolated inputs; commanded by Arduino, enable optionally shared. |
+| 12 V stepper drivers (pan/tilt) | 2 | Step, Dir, Enable (3) | 6 | Routed through Arduino; reserve extra GPIO for future torque/sense lines. |
+| Shutter motor driver | 1 | PWM, Dir, Enable (3) | 3 | H-bridge signals generated by Arduino (hardware PWM). |
+| Ultrasonic modules | 2 | Trigger, Echo (2) | 4 | HC-SR04-compatible; trigger/echo timing handled on Arduino. |
+| LiDAR modules | ~10 | I²C (shared 2) or UART (2 each) | 2–20 | Prefer shared-bus variants aggregated via Arduino to save Pi GPIO. |
 | Xbox Kinect | 1 | USB | 0 | Draws only from USB bus. |
 | Addressable LED strip | 1 | Data (1) | 1 | Level-shift 3.3 V logic up to 5 V. |
-| Audio amp control | 1 | Enable / I²C | 1–2 | Depends on module selection. |
+| Limit switches | 2 | Signal (1) | 2 | Home switches read by Arduino with internal pull-ups. |
+| Audio amp control | 1 | Enable / I²C | 1–2 | Depends on module selection; tie into Arduino or Pi as needed. |
 | Budget margin | — | — | ≥4 | Hold for future peripherals. |
 
 ### Pin mitigation options
