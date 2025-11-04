@@ -16,6 +16,7 @@
 <details>
 <summary>Mermaid source</summary>
 
+<!-- mermaid-output: assets/diagrams/high-level-wiring.png -->
 ```mermaid
 graph TD
     Battery["24 V Li-ion Battery\n10 Ah (240 Wh)"]
@@ -82,7 +83,7 @@ graph TD
     classDef motor fill:#fb8072,stroke:#e31a1c,color:#67000d,stroke-width:2px
 ```
 
-> Rendered with `scripts/render-mermaid.ps1` (`npm run render:mermaid`). Run the script after editing the Mermaid source below to refresh the image.
+> Rendered with `scripts/render-mermaid.ps1 -OutputPath assets/diagrams/high-level-wiring.png` (the default invoked by `npm run render:mermaid`). Run the script after editing the Mermaid source below to refresh the image.
 </details>
 
 
@@ -95,6 +96,7 @@ graph TD
 <details>
 <summary>Mermaid source</summary>
 
+<!-- mermaid-output: assets/diagrams/data-flow.png -->
 ```mermaid
 graph LR
     Pi["Raspberry Pi 5\nCore compute & control"]
@@ -184,7 +186,7 @@ graph LR
     classDef motor fill:#fb8072,stroke:#e31a1c,color:#67000d,stroke-width:2px
 ```
 
-> Rendered with `scripts/render-mermaid.ps1 -DiagramIndex 1 -OutputPath assets/diagrams/data-flow.png`. Run the script after editing the Mermaid source below to refresh the image.
+> Rendered with `scripts/render-mermaid.ps1 -OutputPath assets/diagrams/data-flow.png -DiagramIndex 1` (also covered by `npm run render:mermaid`). Run the script after editing the Mermaid source below to refresh the image.
 </details>
 
 ## Control & Compute
@@ -263,6 +265,9 @@ graph LR
 | Arduino firmware architecture | Pending | Define I²C command protocol between Pi and Arduino; map driver and sensor update loops. |
 | Shutter motor/driver selection | Pending | Choose H-bridge module and projector shutter motor torque requirements. |
 | Limit switch hardware | Pending | Select housing and lever style for pan/shutter homing switches; confirm wiring strain relief. |
+
+## Bring-up Utilities
+- `i2c-test/`: Arduino sketch and Raspberry Pi client for exercising the Pi↔Arduino I²C link, verifying limit switch wiring, and validating the baseline command protocol (ping, telemetry, LED override). See `i2c-test/README.md` for setup aligned with the selections above.
 
 ## I/O & Pin Planning
 | Device / Bus | Qty | Pins (each) | Total Pins | Notes |
