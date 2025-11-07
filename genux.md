@@ -167,26 +167,32 @@ flowchart LR
     
     %% QueryPlan Components
     B --> H[QueryPlan Schema]
-    H --> H1["TargetModel:<br/>Model to query"]
-    H --> H2A["Field:<br/>Field name"]
-    H --> H2B["Aggregate:<br/>count, sum, avg, min, max"]
-    H --> H2C["Alias:<br/>Result column name"]
-    H --> H3A["Field:<br/>Filter target"]
-    H --> H3B["Operator:<br/>equals, not_equals, contains,<br/>starts_with, ends_with,<br/>gt, gte, lt, lte, between,<br/>in, not_in"]
-    H --> H3C["Values:<br/>Value, Values[], Min, Max"]
-    H --> H4["OrderBy:<br/>Sort specification"]
-    H --> H5["Limit & Intent:<br/>Result size & description"]
+    
+    subgraph H["QueryPlan Schema"]
+        direction TB
+        H1["TargetModel:<br/>Model to query"]
+        H2[Select Array]
+        H3[Filter Array]
+        H4["OrderBy:<br/>Sort specification"]
+        H5["Limit & Intent:<br/>Result size & description"]
+        
+        subgraph H2["Select Array"]
+            direction TB
+            H2A["Field:<br/>Field name"]
+            H2B["Aggregate:<br/>count, sum, avg, min, max"]
+            H2C["Alias:<br/>Result column name"]
+        end
+        
+        subgraph H3["Filter Array"]
+            direction TB
+            H3A["Field:<br/>Filter target"]
+            H3B["Operator:<br/>equals, not_equals, contains,<br/>starts_with, ends_with,<br/>gt, gte, lt, lte, between,<br/>in, not_in"]
+            H3C["Values:<br/>Value, Values[], Min, Max"]
+        end
+    end
     
     %% Database Operations
-    H1 --> J[("READ<br/>Query Data")]
-    H2A --> J
-    H2B --> J
-    H2C --> J
-    H3A --> J
-    H3B --> J
-    H3C --> J
-    H4 --> J
-    H5 --> J
+    H --> J[("READ<br/>Query Data")]
     
     %% Styling
     classDef userInput fill:#e1f5fe
@@ -198,7 +204,8 @@ flowchart LR
     class A userInput
     class B process
     class H schema
-    class H1,H2A,H2B,H2C,H3A,H3B,H3C,H4,H5 detail
+    class H1,H4,H5 detail
+    class H2A,H2B,H2C,H3A,H3B,H3C detail
     class J database
 ```
 
