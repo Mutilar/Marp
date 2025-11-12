@@ -127,7 +127,7 @@ graph LR
 
     subgraph SensorCluster["Sensors"]
         UltrasonicArray["Ultrasonic Pairs\nTrigger / Echo"]
-        LiDARArray["LiDAR Array\nI²C / UART"]
+        IRArray["Sharp GP2Y0A02\nAnalog distance sensors"]
     end
 
     subgraph LimitSwitches["Limit Switches"]
@@ -152,8 +152,8 @@ graph LR
     Arduino -->|PWM / Dir| ShutterDriver
     Arduino -->|Trigger| UltrasonicArray
     UltrasonicArray -->|Echo timing| Arduino
-    LiDARArray -->|Range frames| Arduino
-    Arduino -->|Sync / power| LiDARArray
+    IRArray -->|Analog distance| Arduino
+    Arduino -->|5 V supply| IRArray
     PanLimit -->|Closed / Open| Arduino
     ShutterLimit -->|Closed / Open| Arduino
 
@@ -176,7 +176,7 @@ graph LR
     ShutterDriver -->|Motor power| ShutterMotor
 
     class Pi,Arduino compute
-    class Projector,Kinect,Controller,UltrasonicArray,LiDARArray,PanLimit,ShutterLimit peripheral
+    class Projector,Kinect,Controller,UltrasonicArray,IRArray,PanLimit,ShutterLimit peripheral
     class StepperL,StepperR,StepperPan,StepperTilt,ShutterDriver driver
     class MotorLeft,MotorRight,MotorPan,MotorTilt,ShutterMotor motor
 
@@ -189,12 +189,14 @@ graph LR
 > Rendered with `scripts/render-mermaid.ps1 -OutputPath assets/diagrams/data-flow.png -DiagramIndex 1` (also covered by `npm run render:mermaid`). Run the script after editing the Mermaid source below to refresh the image.
 </details>
 
+> **Note:** The current Mermaid diagrams still show the Arduino fan-out for the wheel and turret drivers. With the pigpio-based controller running on the Pi 5, those Step/Dir/Enable lines now originate on the Pi, and the Arduino shifts to an optional expansion role. Update the diagrams when the broader sensor stack is finalized.
+
 ## Control & Compute
 | Component | Role | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Controller | Primary operator input | 5 | ≤1.5 | ≤7.5 | Gamepad form factor | [Xbox Elite Controller](https://www.xbox.com/en-US/accessories/controllers/elite-wireless-controller-series-2) | Wireless or USB |
 | Computer | Onboard coordination & processing | 5 | ≤5.4 | ≤27 | 3.35" × 2.20" × 0.71" | [Raspberry Pi 5](https://www.raspberrypi.com/products/raspberry-pi-5/) | Wi-Fi / Bluetooth / USB; CSI/DSI; 16 GB RAM, 64 GB SD. |
-| Microcontroller | Motion & sensor co-processor | 5 | ≤0.5 | ≤2.5 | 4.00" × 2.10" × 0.60" | [Arduino Mega 2560](https://store.arduino.cc/products/arduino-mega-2560-rev3) | I²C bridge coordinating drivers, sensors, and limit switches. |
+| Microcontroller (optional) | Future sensor / safety co-processor | 5 | ≤0.5 | ≤2.5 | 4.00" × 2.10" × 0.60" | [Arduino Mega 2560](https://store.arduino.cc/products/arduino-mega-2560-rev3) | Stays offline for now; reserve for expanded sensor fusion or hard-real-time interlocks. |
 
 ## Locomotion
 | Component | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
@@ -231,7 +233,7 @@ graph LR
 | Sensor | Range / Resolution | Coverage | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Ultrasonic pair (x2 sets) | Short-range (TBD) | Front/Rear or side placements TBD | 5 | ≤0.015 | ≤0.075 | ~1.77" × 0.79" modules | — | Use overlapping fields to reduce blind spots; polled by Arduino over I²C link to Pi. |
-| Single-direction LiDARs (~10) | Spec TBD | 360° array via multiple units | TBD | TBD | TBD | TBD | — | Define spacing and mounting for uniform perimeter sensing; prefer I²C/RS485 variants managed by Arduino. |
+| Sharp GP2Y0A02 (~10) | 20–150 cm / analog voltage | Perimeter coverage via multi-sensor ring | 4.5–5.5 | ≤0.033 | ≤0.17 | 1.57" × 0.63" × 0.85" | [Sharp GP2Y0A02YK0F](https://global.sharp/products/device/lineup/data/pdf/datasheet/gp2y0a02yk_e.pdf) | Analog 0.4–2.8 V output into Arduino ADC; add filtering and shielding for stable readings. |
 
 ### Contact & Limit Sensing
 
@@ -254,15 +256,38 @@ graph LR
 | Left speaker | Stereo output | TBD (per amplifier) | TBD | TBD | TBD | — | Powered via amplifier module (TBD). |
 | Right speaker | Stereo output | TBD (per amplifier) | TBD | TBD | TBD | — | Match impedance with amplifier selection. |
 
+## Raspberry Pi GPIO Allocation
+
+| Signal | BCM GPIO | Physical Pin | Direction | Notes |
+| --- | --- | --- | --- | --- |
+| Wheel left enable | 5 | 29 | OUT | Active-low enable tied to TB6600 ENA–. |
+| Wheel left direction | 6 | 31 | OUT | HIGH = forward (aligned with sketch/`stepper_pi`). |
+| Wheel left pulse | 13 | 33 | OUT | 20 µs pulses driven via pigpio waveforms. |
+| Wheel right enable | 19 | 35 | OUT | Active-low enable tied to TB6600 ENA–. |
+| Wheel right direction | 26 | 37 | OUT | HIGH = forward. |
+| Wheel right pulse | 21 | 40 | OUT | 20 µs pulses driven via pigpio waveforms. |
+| Step activity LED (optional) | 18 | 12 | OUT | Mirrors Arduino sketch indicator; set to –1 to disable in code. |
+| Turret pan enable (reserved) | 16 | 36 | OUT | Hold for future 12 V driver; keeps left/right bank clustered. |
+| Turret pan direction (reserved) | 20 | 38 | OUT | Shares power rail with future DRV8825. |
+| Turret pan pulse (reserved) | 12 | 32 | OUT | On PWM0 channel for clean timing. |
+| Turret tilt enable (reserved) | 23 | 16 | OUT | Adjacent to 3.3 V rail for level-shifter board. |
+| Turret tilt direction (reserved) | 24 | 18 | OUT | Reserve until tilt hardware is finalized. |
+| Turret tilt pulse (reserved) | 25 | 22 | OUT | Close to other outputs for ribbon routing. |
+| I²C bus (shared) | 2 (SDA), 3 (SCL) | 3, 5 | BIDIR | Pull-ups already on Pi; available for IMU, expanders, or eventual Arduino bridge. |
+| UART console | 14 (TXD), 15 (RXD) | 8, 10 | BIDIR | Keep free for debug or MCU handoff. |
+
+This allocation keeps the wheel pair fully defined (7 GPIOs) and stages an additional six outputs for the turret axes, totaling 13 dedicated control lines. Even after reserving I²C and UART, more than a dozen general-purpose pins remain for peripherals (limit switches, LEDs, relays). The Arduino Mega only becomes necessary once the remaining GPIO budget can no longer absorb new sensors or when strict electrical isolation is required.
+
 ## Open Items
 | Item | Status | Next Step |
 | --- | --- | --- |
 | Head stepper motor selection | Pending | Determine torque requirements and mechanical constraints. |
 | Projector specification | Selected | Locked on NEBULA Capsule Air (720p, 150 ANSI); confirm PD power profile. |
-| Sensor placement plan | Pending | Draft layout for ultrasonic and LiDAR modules; validate wiring paths. |
+| Sensor placement plan | Pending | Draft layout for ultrasonic and Sharp IR modules; validate wiring paths. |
 | Power budget verification | Pending | Sum draw across motors, compute, sensors, and converters; size fuses accordingly. |
 | Projector integration | In progress | Design mount plus USB-C PD (45 W) power delivery and verify HDMI link to Pi 5. |
-| Arduino firmware architecture | Pending | Define I²C command protocol between Pi and Arduino; map driver and sensor update loops. |
+| Pi stepper control service | In progress | Package `stepper_pi` as a systemd service, lock pigpiod daemon parameters, add watchdog telemetry. |
+| Arduino co-processor plan | Deferred | Revisit once GPIO budget tightens or analog sensing requires dedicated ADC pins. |
 | Shutter motor/driver selection | Pending | Choose H-bridge module and projector shutter motor torque requirements. |
 | Limit switch hardware | Pending | Select housing and lever style for pan/shutter homing switches; confirm wiring strain relief. |
 
@@ -272,20 +297,22 @@ graph LR
 ## I/O & Pin Planning
 | Device / Bus | Qty | Pins (each) | Total Pins | Notes |
 | --- | --- | --- | --- | --- |
-| Arduino co-processor | 1 | SDA, SCL (2) | 2 | I²C link from Raspberry Pi to Arduino Mega for motion & sensor fan-out. |
-| 24 V stepper drivers (L/R) | 2 | Step, Dir, Enable (3) | 6 | TB6600 opto-isolated inputs; commanded by Arduino, enable optionally shared. |
-| 12 V stepper drivers (pan/tilt) | 2 | Step, Dir, Enable (3) | 6 | Routed through Arduino; reserve extra GPIO for future torque/sense lines. |
-| Shutter motor driver | 1 | PWM, Dir, Enable (3) | 3 | H-bridge signals generated by Arduino (hardware PWM). |
-| Ultrasonic modules | 2 | Trigger, Echo (2) | 4 | HC-SR04-compatible; trigger/echo timing handled on Arduino. |
-| LiDAR modules | ~10 | I²C (shared 2) or UART (2 each) | 2–20 | Prefer shared-bus variants aggregated via Arduino to save Pi GPIO. |
-| Xbox Kinect | 1 | USB | 0 | Draws only from USB bus. |
-| Addressable LED strip | 1 | Data (1) | 1 | Level-shift 3.3 V logic up to 5 V. |
-| Limit switches | 2 | Signal (1) | 2 | Home switches read by Arduino with internal pull-ups. |
-| Audio amp control | 1 | Enable / I²C | 1–2 | Depends on module selection; tie into Arduino or Pi as needed. |
-| Budget margin | — | — | ≥4 | Hold for future peripherals. |
+| Wheel stepper drivers (Pi direct) | 2 | Step, Dir, Enable (3) | 6 | GPIO5/6/13/19/26/21 already assigned; enable lines stay independent for quick disable. |
+| Turret stepper drivers (reserved) | 2 | Step, Dir, Enable (3) | 6 | GPIO16/20/12/23/24/25 earmarked but unused until turret hardware lands. |
+| Step activity LED | 1 | GPIO (1) | 1 | Optional indicator on GPIO18; disable in software if unused. |
+| Limit switches | 2 | Signal (1) | 2 | Plan to land directly on Pi unless electrical noise dictates isolation. |
+| Ultrasonic modules | 2 | Trigger, Echo (2) | 4 | Could consume four Pi GPIOs; reassess once sensor set is fixed or migrate to I²C expander. |
+| Sharp IR distance sensors | ~10 | Analog (1) | ~10 | Requires ADC front-end (e.g., MCP3008 over SPI) or future Arduino bridge. |
+| Xbox Kinect | 1 | USB | 0 | Draws only from USB 3.0. |
+| Xbox controller dongle | 1 | USB | 0 | Already present for joystick input. |
+| Camera (CSI) | 1 | CSI lanes | 0 | Dedicated ribbon port, no GPIO impact. |
+| Addressable LED strip | 1 | Data (1) | 1 | Consider PWM-capable pin with level shifting (GPIO18 already in use; look at GPIO10/12). |
+| Audio amp control | 1 | Enable / I²C | 1–2 | Use spare GPIO or share Pi I²C bus. |
+| Optional Arduino co-processor | 1 | SDA, SCL (2) | 2 | Add later if analog sensing or safety interlocks outgrow Pi GPIO budget. |
+| Budget margin | — | — | ≥8 | Remaining pins cover future sensors; shift to Arduino when margin drops below 4 spare GPIOs. |
 
 ### Pin mitigation options
 - Offload high-rate GPIO to a microcontroller (e.g., RP2040, Arduino) and bridge via USB/UART.
 - Add I²C GPIO expanders (MCP23017, TCA9548A) or SPI shift registers for sensor triggering.
-- Share enable signals across compatible stepper drivers or use differential buses for LiDAR arrays.
+- Share enable signals across compatible stepper drivers and use analog multiplexers to fan-in the Sharp IR array.
 
