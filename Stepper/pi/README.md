@@ -67,12 +67,12 @@ Match the Raspberry Pi BCM GPIO numbers defined in the code with your stepper dr
 | Signal | BCM GPIO | Notes |
 | --- | --- | --- |
 | `LED_GPIO` | `18` | Set to -1 in code to disable. Drives an indicator LED Active High. |
-| `MOTOR_LEFT_ENABLE` | `5` | Active Low. Holds the left driver enabled when low. |
-| `MOTOR_LEFT_DIRECTION` | `6` | Forward = High (code default). |
-| `MOTOR_LEFT_PULSE` | `13` | Active High pulse; minimum width is 20 µs. |
-| `MOTOR_RIGHT_ENABLE` | `19` | Active Low. |
-| `MOTOR_RIGHT_DIRECTION` | `26` | Forward = High. |
-| `MOTOR_RIGHT_PULSE` | `21` | Active High pulse. |
+| `MOTOR_LEFT_ENABLE` | `5` (Pin 29) | Active Low. Holds the left driver enabled when low. |
+| `MOTOR_LEFT_DIRECTION` | `6` (Pin 31) | Forward = High (code default). |
+| `MOTOR_LEFT_PULSE` | `13` (Pin 33) | Active High pulse; minimum width is 20 µs. |
+| `MOTOR_RIGHT_ENABLE` | `19` (Pin 35) | Active Low. |
+| `MOTOR_RIGHT_DIRECTION` | `26` (Pin 37) | Forward = High. |
+| `MOTOR_RIGHT_PULSE` | `21` (Pin 40) | Active High pulse. |
 
 Additional wiring guidance:
 - Tie the Pi ground to the stepper driver logic ground.
@@ -108,5 +108,47 @@ sudo ./stepper_pi
 - Add udev rules to grant non-root access to `/dev/input/js*` and `/dev/pigpio`. Place a rule in `/etc/udev/rules.d/` and reload with `sudo udevadm control --reload`.
 - Cross-compile on a desktop using the Raspberry Pi toolchain if builds on the Pi are too slow.
 - Enable SSH and `tmux` or `screen` for remote development sessions.
+
+## 12. Kinect Support with libfreenect
+If you plan to steer the robot with a Kinect (RGB/depth, accelerometer, motor/LED control), the repository now vendors [`OpenKinect/libfreenect`](https://github.com/OpenKinect/libfreenect) as a submodule under `Stepper/pi/libfreenect`. The high-level workflow is:
+
+1. **Sync the submodule**
+  ```bash
+  cd ~/Marp
+  git submodule update --init --recursive Stepper/pi/libfreenect
+  ```
+  - Re-run the command whenever you pull upstream changes that touch the submodule.
+
+2. **Install Kinect build prerequisites**
+  ```bash
+  sudo apt install -y libusb-1.0-0-dev cmake build-essential freeglut3-dev mesa-utils python3
+  ```
+  - `libusb` is required by the driver, while `freeglut`/`mesa` enable the OpenGL sample viewers.
+
+3. **Build libfreenect (on the Pi)**
+  ```bash
+  cd ~/Marp/Stepper/pi/libfreenect
+  mkdir -p build && cd build
+  cmake -L .. -DBUILD_PYTHON3=ON   # omit -DBUILD_PYTHON3 if you only need the C API
+  make -j$(nproc)
+  ```
+  - Use `cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo` for a faster, debuggable build.
+
+4. **Try the example viewers**
+  ```bash
+  cd ~/Marp/Stepper/pi/libfreenect/build/bin
+  sudo ./glview         # RGB + depth window
+  sudo ./freenect-glview  # alternate viewer
+  ```
+  - Run the binaries with `sudo` so libfreenect can access USB without extra udev rules.
+
+5. **(Optional) Upload audio firmware**
+  ```bash
+  cd ~/Marp/Stepper/pi/libfreenect/build
+  sudo ./bin/freenect-loader
+  ```
+  - Newer Kinect hardware needs the firmware for audio, LED, or motor control. The loader injects it right after `freenect_init()`.
+
+Once the Kinect stack is working, you can begin plumbing its depth/RGB or accelerometer data into `stepper_pi.cpp` alongside joystick input. Keep `pigpiod` running in the background; libfreenect operates entirely in userspace and does not conflict with GPIO access.
 
 Following these steps provides a repeatable path to compile and run the stepper control logic on any Raspberry Pi that meets the hardware requirements.
