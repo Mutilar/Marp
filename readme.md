@@ -1,11 +1,5 @@
 # Marp
 
-## Overview
-| Aspect | Details |
-| --- | --- |
-| Mission | Home robot emphasizing modular hardware and intuitive control via Xbox gamepad. |
-| Current Focus | Documenting component selections, integration needs, and outstanding research items. |
-| Development Notes | Prioritize maintainable wiring, accessible diagnostics, and future sensor expansion. |
 
 ### High-Level Wiring Diagram
 
@@ -19,32 +13,32 @@
 <!-- mermaid-output: assets/diagrams/high-level-wiring.png -->
 ```mermaid
 graph TD
-    Battery["24 V Li-ion Battery\n10 Ah (240 Wh)"]
-    Breaker["30 A Circuit Breaker"]
-    Switch["24 V Safety Switch"]
+    Battery["24 V Li-ion Battery\n10 Ah (240 Wh)"]
+    Breaker["30 A Circuit Breaker"]
+    Switch["24 V Safety Switch"]
     Meter["Inline Battery Meter"]
-    FuseBlock["6-way Fuse Block\nFused outputs (5–20 A)"]
-    FuseStepper24["Fuse 1: 20 A\n24 V Stepper drivers"]
-    FuseBuck12["Fuse 2: 10 A\n24→12 V DC-DC"]
-    FuseBuck5["Fuse 3: 15 A\n24→5 V DC-DC"]
-    subgraph StepperDrivers24["24 V Stepper Drivers (TB6600)"]
+    FuseBlock["6-way Fuse Block\nFused outputs (5-20 A)"]
+    FuseStepper24["Fuse 1: 5 A\n24 V Stepper drivers"]
+    FuseBuck12["Fuse 2: 5 A\n24 -> 12 V DC-DC"]
+    FuseBuck5["Fuse 3: 5 A\n24 -> 5 V DC-DC"]
+    FusePD["Fuse 4: 5 A\nUSB-C PD adapter"]
+    subgraph StepperDrivers24["24 V Stepper Drivers (TB6600)"]
         direction TB
-        Stepper24Left["Left Driver\nTB6600 (≈2.5 A)"]
-        Stepper24Right["Right Driver\nTB6600 (≈2.5 A)"]
+        Stepper24Left["Left Driver\nTB6600 (~1.0 A)"]
+        Stepper24Right["Right Driver\nTB6600 (~1.0 A)"]
     end
-    Buck12["24→12 V DC-DC (10 A max)"]
-    Buck5["24→5 V DC-DC (15 A max)"]
-    subgraph StepperDrivers12["12 V Stepper Drivers (DRV8825/A4988)"]
+    Buck12["24 -> 12 V DC-DC (10 A max)"]
+    Buck5["24 -> 5 V DC-DC (15 A max)"]
+    subgraph StepperDrivers12["12 V Stepper Drivers (TB6600, current-limited)"]
         direction TB
-        Stepper12Pan["Pan Driver\nDRV8825 (≈1 A)"]
-        Stepper12Tilt["Tilt Driver\nDRV8825 (≈1 A)"]
+        Stepper12Pan["Pan Driver\nTB6600 (~1.0 A)"]
+        Stepper12Tilt["Tilt Driver\nTB6600 (~1.0 A)"]
     end
-    Projector["NEBULA Capsule Air\nUSB-C PD (≤45 W)"]
-    Audio["Audio Amp + Speakers\n5 V via Pi"]
-    Pi["Raspberry Pi 5 + Storage\n5 V, ≤5.4 A"]
-    Arduino["Arduino Mega 2560\n5 V I²C bridge"]
-    Kinect["Kinect & USB Peripherals\n5 V, ≤2 A"]
-    LEDs["Addressable LEDs & Logic\n5 V, ≤3 A"]
+    PDAdapter["JacobsParts USB-C PD\n20 V USB-PD output"]
+    Projector["NEBULA Capsule Air\nUSB-C PD (~45 W)"]
+    Pi["Raspberry Pi 5 + Storage\n5 V, ~5.4 A"]
+    Kinect["Kinect & USB Peripherals\n5 V, ~2 A"]
+    LEDs["Addressable LEDs & Logic\n5 V, ~3 A"]
 
     Battery --> Breaker --> Switch --> Meter --> FuseBlock
     FuseBlock --> FuseStepper24 --> Stepper24Left
@@ -52,12 +46,11 @@ graph TD
     FuseBlock --> FuseBuck12 --> Buck12
     Buck12 --> Stepper12Pan
     Buck12 --> Stepper12Tilt
-    Buck12 --> Projector
+    FuseBlock --> FusePD --> PDAdapter --> Projector
     FuseBlock --> FuseBuck5 --> Buck5 --> Pi
-    Buck5 --> Arduino
-    Pi --> Audio
     Pi --> Kinect
-    Arduino -->|5 V logic| LEDs
+    Pi --> LEDs
+    Pi --> Lasers
     Stepper24Left --> LeftWheel["Left Wheel KH56"]
     Stepper24Right --> RightWheel["Right Wheel KH56"]
     Stepper12Pan --> HeadPan["Head Pan M55"]
@@ -65,12 +58,11 @@ graph TD
 
     class Battery battery
     class Breaker,Switch,Meter,FuseBlock distribution
-    class FuseStepper24,FuseBuck12,FuseBuck5 fuse
+    class FuseStepper24,FuseBuck12,FuseBuck5,FusePD fuse
     class Stepper24Left,Stepper24Right,Stepper12Pan,Stepper12Tilt driver
-    class Buck12,Buck5 converter
+    class Buck12,Buck5,PDAdapter converter
     class Pi compute
-    class Arduino compute
-    class Projector,Audio,Kinect,LEDs peripheral
+    class Projector,Audio,Kinect,LEDs,Lasers peripheral
     class LeftWheel,RightWheel,HeadPan,HeadTilt motor
 
     classDef battery fill:#69c06f,stroke:#2e8540,color:#0b3d17,stroke-width:2px
@@ -98,29 +90,28 @@ graph TD
 
 <!-- mermaid-output: assets/diagrams/data-flow.png -->
 ```mermaid
-graph LR
+graph TB
     Pi["Raspberry Pi 5\nCore compute & control"]
     Projector["NEBULA Capsule Air\nHDMI sink"]
     Kinect["Xbox Kinect Sensor\nUSB 3.0"]
     Controller["Xbox Controller Adapter\nUSB"]
-    Arduino["Arduino Mega 2560\nI²C co-processor"]
 
-    subgraph StepperDrivers24["24 V TB6600 Stepper Drivers"]
+    subgraph StepperDrivers24["24 V TB6600 Stepper Drivers"]
         StepperL["Left Driver\nStep / Dir / Enable"]
         StepperR["Right Driver\nStep / Dir / Enable"]
     end
 
-    subgraph StepperDrivers12["12 V DRV8825/A4988 Stepper Drivers"]
+    subgraph StepperDrivers12["12 V Stepper Drivers"]
         StepperPan["Pan Driver\nStep / Dir / Enable"]
         StepperTilt["Tilt Driver\nStep / Dir / Enable"]
     end
 
-    subgraph StepperMotors24["24 V Stepper Motors"]
+    subgraph StepperMotors24["24 V Stepper Motors"]
         MotorLeft["Left Wheel Motor\nA-/A+/B-/B+"]
         MotorRight["Right Wheel Motor\nA-/A+/B-/B+"]
     end
 
-    subgraph StepperMotors12["12 V Stepper Motors"]
+    subgraph StepperMotors12["12 V Stepper Motors"]
         MotorPan["Pan Motor\nA-/A+/B-/B+"]
         MotorTilt["Tilt Motor\nA-/A+/B-/B+"]
     end
@@ -143,19 +134,17 @@ graph LR
     Pi -->|HDMI| Projector
     Pi -->|USB 3.0| Kinect
     Pi -->|USB| Controller
-    Pi -->|I²C commands| Arduino
-    Arduino -->|Status telemetry| Pi
-    Arduino -->|Step / Dir / Enable| StepperL
-    Arduino -->|Step / Dir / Enable| StepperR
-    Arduino -->|Step / Dir / Enable| StepperPan
-    Arduino -->|Step / Dir / Enable| StepperTilt
-    Arduino -->|PWM / Dir| ShutterDriver
-    Arduino -->|Trigger| UltrasonicArray
-    UltrasonicArray -->|Echo timing| Arduino
-    IRArray -->|Analog distance| Arduino
-    Arduino -->|5 V supply| IRArray
-    PanLimit -->|Closed / Open| Arduino
-    ShutterLimit -->|Closed / Open| Arduino
+    Pi -->|Step / Dir / Enable| StepperL
+    Pi -->|Step / Dir / Enable| StepperR
+    Pi -->|Step / Dir / Enable| StepperPan
+    Pi -->|Step / Dir / Enable| StepperTilt
+    Pi -->|PWM / Dir| ShutterDriver
+    Pi -->|Trigger| UltrasonicArray
+    UltrasonicArray -->|Echo timing| Pi
+    IRArray -->|Analog distance| Pi
+    Pi -->|5 V logic| IRArray
+    PanLimit -->|Closed / Open| Pi
+    ShutterLimit -->|Closed / Open| Pi
 
     StepperL -->|A+| MotorLeft
     StepperL -->|A-| MotorLeft
@@ -175,7 +164,7 @@ graph LR
     StepperTilt -->|B-| MotorTilt
     ShutterDriver -->|Motor power| ShutterMotor
 
-    class Pi,Arduino compute
+    class Pi compute
     class Projector,Kinect,Controller,UltrasonicArray,IRArray,PanLimit,ShutterLimit peripheral
     class StepperL,StepperR,StepperPan,StepperTilt,ShutterDriver driver
     class MotorLeft,MotorRight,MotorPan,MotorTilt,ShutterMotor motor
@@ -189,21 +178,85 @@ graph LR
 > Rendered with `scripts/render-mermaid.ps1 -OutputPath assets/diagrams/data-flow.png -DiagramIndex 1` (also covered by `npm run render:mermaid`). Run the script after editing the Mermaid source below to refresh the image.
 </details>
 
-> **Note:** The current Mermaid diagrams still show the Arduino fan-out for the wheel and turret drivers. With the pigpio-based controller running on the Pi 5, those Step/Dir/Enable lines now originate on the Pi, and the Arduino shifts to an optional expansion role. Update the diagrams when the broader sensor stack is finalized.
+### User Story Diagram
+
+![User Story Diagram](assets/diagrams/user-story.png)
+
+> Shows how the User's control surfaces and onboard sensing map directly to the robot's expressive outputs.
+
+<details>
+<summary>Mermaid source</summary>
+
+<!-- mermaid-output: assets/diagrams/user-story.png -->
+```mermaid
+graph TB
+    User["User"]
+
+    subgraph ControlSurfaces["Control Surfaces:"]
+        subgraph XboxPad["Xbox Controller\nValve Steam Deck\n"]
+            XLeft["Left stick\nWheel vectors"]
+            XRight["Right stick\nTurret arcs"]
+            XTrig["Triggers\nLED blend"]
+            XFace["A/B/X/Y\nVoice & motion macros"]
+        end
+    end
+
+    subgraph Perception["Perception Inputs"]
+        Ultrasonic["Ultrasonic Pair\nObstacle distance"]
+        Lidar["2D LiDAR\nScan-based clearance"]
+        Kinect["Xbox Kinect + IMU\nPose / RGB / Depth"]
+    end
+
+    subgraph Expression["Expressive Outputs"]
+        Mobility["Mobility\nTranslation / rotation"]
+        Head["Head Presence\nPan / tilt gestures"]
+        Projection["Projected Media\nWWT astronomical scenes"]
+        Audio["Audio Atmosphere\nTTS / SFX / music"]
+        LEDs["Facial LEDs\nAddressable strip"]
+    end
+
+    User -->|2D analog| XLeft
+    User -->|2D analog| XRight
+    User -->|1D analog| XTrig
+    User -->|Digital| XFace
+
+    XLeft -->|Differential drive| Mobility
+    XRight -->|Turret aim| Head
+    XTrig -->|LED blend request| LEDs
+    XFace -->|Voice / motion macros| Audio
+
+    Ultrasonic -->|Stop zone alerts| Mobility
+    Lidar -->|Clearance map| Mobility
+    Kinect -->|Gesture & presence cues| LEDs
+    Kinect -->|Audience detection| Audio
+
+    class User actor
+    class XLeft,XRight,XTrig,XFace,DLeft,DRight,DTrig,DMacro input
+    class Ultrasonic,Lidar,Kinect sensor
+    class Mobility,Head,Projection,Audio,LEDs output
+
+    classDef actor fill:#ffe29c,stroke:#d49f00,color:#7a5d00,stroke-width:1.5px
+    classDef input fill:#fdb462,stroke:#d95f02,color:#7f2704,stroke-width:1.5px
+    classDef sensor fill:#cde1f7,stroke:#1f78b4,color:#08306b,stroke-width:1.5px
+    classDef output fill:#fb8072,stroke:#e31a1c,color:#67000d,stroke-width:1.5px
+```
+
+> Rendered with `scripts/render-mermaid.ps1 -OutputPath assets/diagrams/user-story.png -DiagramIndex 2` (also covered by `npm run render:mermaid`). Run the script after editing the Mermaid source above to refresh the image.
+</details>
 
 ## Control & Compute
 | Component | Role | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Controller | Primary operator input | 5 | ≤1.5 | ≤7.5 | Gamepad form factor | [Xbox Elite Controller](https://www.xbox.com/en-US/accessories/controllers/elite-wireless-controller-series-2) | Wireless or USB |
-| Computer | Onboard coordination & processing | 5 | ≤5.4 | ≤27 | 3.35" × 2.20" × 0.71" | [Raspberry Pi 5](https://www.raspberrypi.com/products/raspberry-pi-5/) | Wi-Fi / Bluetooth / USB; CSI/DSI; 16 GB RAM, 64 GB SD. |
-| Microcontroller (optional) | Future sensor / safety co-processor | 5 | ≤0.5 | ≤2.5 | 4.00" × 2.10" × 0.60" | [Arduino Mega 2560](https://store.arduino.cc/products/arduino-mega-2560-rev3) | Stays offline for now; reserve for expanded sensor fusion or hard-real-time interlocks. |
+| Controller | Operator input | 5 | ≤1.5 | ≤7.5 | Gamepad form factor | [Xbox Elite Controller](https://www.xbox.com/en-US/accessories/controllers/elite-wireless-controller-series-2) | Wired or wireless dual joysticks, triggers, and action buttons. |
+| Handheld Console | Operator input/output | 5–20 (USB-C PD) | ≤3.0 | ≤45 | 11.7" × 4.6" × 1.9" | [Valve Steam Deck](https://store.steampowered.com/steamdeck) | Wireless dual joysticks, triggers, and action buttons with real-time video stream and diagonistics. |
+| Robot Computer | Onboard coordination & processing | 5 | ≤5.4 | ≤27 | 3.35" × 2.20" × 0.71" | [Raspberry Pi 5](https://www.raspberrypi.com/products/raspberry-pi-5/) | Wi-Fi / Bluetooth / USB; CSI/DSI; 16 GB RAM, 64 GB SD. |
 
 ## Locomotion
 | Component | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | Left wheel | 24 | 2.5 | 60 | 2.20" | [Nidec](https://www.nidec-advancedmotor.com/en/digital/pdf/KH56Q.pdf) | KH56 Stepper Motor |
 | Right wheel | 24 | 2.5 | 60 | 2.20" | [Nidec](https://www.nidec-advancedmotor.com/en/digital/pdf/KH56Q.pdf) | KH56 Stepper Motor |
-| Drivers | 24 | ≤2.5 | ≤120 | 3.4" × 1.8" × 1.3" | [Makerguides](https://www.makerguides.com/tb6600-stepper-motor-driver-arduino-tutorial/) | TB6600 × 2 |
+| Drivers | 24 | ≤2.5 | ≤120 | 3.4" × 1.8" × 1.3" | [Makerguides](https://www.makerguides.com/tb6600-stepper-motor-driver-arduino-tutorial/) | TB6600 × 4 (two on wheels, two reserved for turret axes). |
 
 ## Actuation
 
@@ -211,108 +264,49 @@ graph LR
 | --- | --- | --- | --- | --- | --- | --- |
 | Head pan | 12 | 1.0 | 12 | Ø2.17" × 0.98" | [Mitsumi](https://product.minebeamitsumi.com/en/product/category/rotary/steppingmotor/pm/PMStandardtype.html) | M55SP-3NK Stepper Motor (stocked on [Radwell](https://www.radwell.com/Buy/MITSUMI/MITSUMI/M55SP-2NK)) |
 | Head tilt | 12 | 1.0 | 12 | Ø2.17" × 0.98" | [Mitsumi](https://product.minebeamitsumi.com/en/product/category/rotary/steppingmotor/pm/PMStandardtype.html) | M55SP-3NK Stepper Motor (stocked on [Radwell](https://www.radwell.com/Buy/MITSUMI/MITSUMI/M55SP-2NK)) |
-| Drivers | 12 | ≤2.0 | ≤24 | 0.8" × 0.6" | [Jeanoko](https://www.amazon.com/dp/B0C4P8997M) | DRV8825/A4988 × 2 |
-| Shutter motor driver | TBD | TBD | TBD | TBD | — | H-bridge driver; 5 V logic with 12 V motor rail; commanded by Arduino. |
+| Drivers (shared TB6600 bank) | 24 | ≤2.5 | ≤120 | 3.4" × 1.8" × 1.3" | [Makerguides](https://www.makerguides.com/tb6600-stepper-motor-driver-arduino-tutorial/) | Same TB6600 stack as wheels; pan/tilt channels limit current for 12 V coils. |
+| Shutter motor driver | TBD | TBD | TBD | TBD | — | H-bridge driver; 5 V logic with 12 V motor rail; commanded directly by the Pi. |
 | Shutter motor | TBD | TBD | TBD | TBD | — | Motorized projector shutter (non-stepper); homed via limit switch. |
 
 ## Power & Electronics
 | Component | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| Lithium Battery | 24 | 5 (Continuous), 10 (Peak) | 240 Wh | 5.8" × 3.2" × 2.8" | [Aegis](https://www.aegisbattery.com/collections/24v-lithium-batteries/products/aegis-24v-10ah-lithium-ion-battery-pack-nmc-24v-lithium-battery) | 10 Ah NMC pack (≈240 Wh capacity). |
-| Battery Meter | 24 | ≤0.5 | ≤1.2 | 85mm x W: 42mm x H: 25mm | [Aegis](https://www.aegisbattery.com/collections/lithium-battery-meters-instruments/products/high-precision-battery-200a-watt-meter-and-power-analyzer) | Inline 200 A analyzer (voltage, amps, watts). |
+| Lithium Battery | 24 | 5 (Continuous), 10 (Peak) | 240 Wh | 5.8" × 3.2" × 2.8" | [Aegis](https://www.aegisbattery.com/collections/24v-lithium-batteries/products/aegis-24v-10ah-lithium-ion-battery-pack-nmc-24v-lithium-battery) | 10 Ah NMC pack (≈240 Wh capacity). |
+| Battery Meter | 24 | ≤0.5 | ≤1.2 | 85mm x W: 42mm x H: 25mm | [Aegis](https://www.aegisbattery.com/collections/lithium-battery-meters-instruments/products/high-precision-battery-200a-watt-meter-and-power-analyzer) | Inline 200 A analyzer (voltage, amps, watts). |
 | Anderson PP45 → ring adapter | 24 | 20 | 480 | M10 ring | [Aegis](https://www.aegisbattery.com/collections/adapters/products/anderson-to-ring-terminal-adapter) | Quick battery-to-system interface. |
 | Circuit Breaker | 24 | 30 | 720 | 1.73"D x 1.93"W x 2.91"H | [Hamolar](https://www.amazon.com/gp/product/B095Z2F5F7/ref=ewc_pr_img_2?smid=A2TJVE0ZQTOQDP&th=1) | Main battery protection. |
-| Safety Switch | 24 | 16 | 384 | 4.88 x 2.24 x 2.09 | [Vonvoff](https://www.amazon.com/dp/B0CKXPNBB2?ref=ppx_yo2ov_dt_b_fed_asin_title&th=1) | Manual 24 V disconnect. |
+| Safety Switch | 24 | 16 | 384 | 4.88 x 2.24 x 2.09 | [Vonvoff](https://www.amazon.com/dp/B0CKXPNBB2?ref=ppx_yo2ov_dt_b_fed_asin_title&th=1) | Manual 24 V disconnect. |
 | Fuse Block | 24 | 5–20 (per branch) | ≤640 (aggregate) | 3.66" × 1.77" × 4.88" | [Tutooper](https://www.amazon.com/gp/product/B0F4NJK6MZ/ref=ewc_pr_img_1?smid=AAWQNNL1TJNS4&th=1) | Six-position low-voltage distribution. |
-| 12 V Converter | 24→12 | 10 | 120 | 2.04"D x 1.88"W x 0.74"H | [Tobsun](https://www.amazon.com/gp/product/B07V6X6L89/ref=ewc_pr_img_1?smid=A3GYM455B71YGR&th=1) | DC-DC buck for 12 V peripherals. |
-| 5 V Converter | 24→5 | 15 | 75 | 0.71"D x 1.26"W x 0.71"H | [Tobsun](https://www.amazon.com/dp/B0BLSGDVHF?ref=ppx_yo2ov_dt_b_fed_asin_title) | DC-DC buck for logic and compute loads. |
+| 12 V Converter | 24→12 | 10 | 120 | 2.04"D x 1.88"W x 0.74"H | [Tobsun](https://www.amazon.com/gp/product/B07V6X6L89/ref=ewc_pr_img_1?smid=A3GYM455B71YGR&th=1) | DC-DC buck for 12 V peripherals. |
+| 5 V Converter | 24→5 | 15 | 75 | 0.71"D x 1.26"W x 0.71"H | [Tobsun](https://www.amazon.com/dp/B0BLSGDVHF?ref=ppx_yo2ov_dt_b_fed_asin_title) | DC-DC buck for logic and compute loads. |
+| JacobsParts USB-C PD adapter | 12/24→5–20 | ≤3 (PD) | 45 | TBD | [Amazon](https://www.amazon.com/dp/B08P3YXXPG) | USB-C PD plus USB-A QC3.0 module (5.5×2.1 mm input) for projector/compute power. |
+| Waterproof USB-C buck (2-pack) | 12/24→5 | 5 | 25 | TBD (potted) | [Amazon](https://www.amazon.com/dp/B0CRVVWL4Y) | Epoxy-potted USB-C step-down pair for Pi 5 or peripheral loads. |
+
+## Cabling & Interconnects
+| Item | Purpose | Length | Rating | Link | Notes |
+| --- | --- | --- | --- | --- | --- |
+| USB-C short cables (2-pack) | Power jumpers between DC buck outputs and Pi/projector | 6" | USB-C PD / 60 W | [Amazon](https://www.amazon.com/dp/B0CL4HS7W7) | Braided C-to-C leads sized for tight enclosures; keeps USB-C PD adapters tidy. |
+| PowerBear HDMI cable | Pi-to-projector video link | 0.5 ft | 4K @ 60 Hz | [Amazon](https://www.amazon.com/dp/B08J8BJQLB) | Short, braided HDMI interconnect to limit slack near the projector mount. |
 
 ## Sensors & Outputs
 
 ### Distance & Environment
 | Sensor | Range / Resolution | Coverage | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Ultrasonic pair (x2 sets) | Short-range (TBD) | Front/Rear or side placements TBD | 5 | ≤0.015 | ≤0.075 | ~1.77" × 0.79" modules | — | Use overlapping fields to reduce blind spots; polled by Arduino over I²C link to Pi. |
-| Sharp GP2Y0A02 (~10) | 20–150 cm / analog voltage | Perimeter coverage via multi-sensor ring | 4.5–5.5 | ≤0.033 | ≤0.17 | 1.57" × 0.63" × 0.85" | [Sharp GP2Y0A02YK0F](https://global.sharp/products/device/lineup/data/pdf/datasheet/gp2y0a02yk_e.pdf) | Analog 0.4–2.8 V output into Arduino ADC; add filtering and shielding for stable readings. |
+| Ultrasonic pair (x2 sets) | Short-range (TBD) | Front/Rear or side placements TBD | 5 | ≤0.015 | ≤0.075 | ~1.77" × 0.79" modules | — | Use overlapping fields to reduce blind spots; polled directly from the Pi over GPIO/I²C. |
+| Sharp GP2Y0A02 (~10) | 20–150 cm / analog voltage | Perimeter coverage via multi-sensor ring | 4.5–5.5 | ≤0.033 | ≤0.17 | 1.57" × 0.63" × 0.85" | [Sharp GP2Y0A02YK0F](https://global.sharp/products/device/lineup/data/pdf/datasheet/gp2y0a02yk_e.pdf) | Analog 0.4–2.8 V output into a Pi ADC front-end; add filtering and shielding for stable readings. |
 
 ### Contact & Limit Sensing
 
 | Component | Role | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Pan home limit switch | Homing reference for head pan axis | 5 | ≤0.02 | ≤0.1 | TBD | — | Wired to Arduino digital input with pull-up; defines zero position. |
-| Shutter home limit switch | Homing reference for projector shutter | 5 | ≤0.02 | ≤0.1 | TBD | — | Confirms shutter closed position; debounced on Arduino. |
+| Pan home limit switch | Homing reference for head pan axis | 5 | ≤0.02 | ≤0.1 | TBD | — | Lands on a Pi GPIO with pull-up to define the zero position. |
+| Shutter home limit switch | Homing reference for projector shutter | 5 | ≤0.02 | ≤0.1 | TBD | — | Confirms shutter closed position; debounced in Pi software. |
 
 ### Vision & Interaction
 | Component | Function | Coverage / Resolution | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Xbox Kinect | Depth + RGB sensing, Pose detection | Wide FoV; structured light | 5 | ≤2 | ≤10 | 11" × 2.6" × 1.5" | [OpenKinect](https://github.com/OpenKinect/libfreenect) | Confirm Raspberry Pi compatibility or plan for companion compute. |
-| Mini Projector | Visual output | 720p (150 ANSI) | 5–20 (USB-C PD) | ≤2.25 | ≤45 | Ø2.7" × 5.5" | [NEBULA Capsule Air](https://www.amazon.com/dp/B0CWV1S7B4?ref=ppx_yo2ov_dt_b_fed_asin_title&th=1) | Built-in 34 Wh battery; integrate 45 W USB-C PD or leverage internal pack. |
-| Camera | Vision input | 12 MP, 75° FoV; autofocus | 5 | ≤0.5 | ≤2.5 | 1.50" × 1.50" × 0.71" (w/ adapter) | [Arducam](https://www.amazon.com/dp/B0C9PYCV9S?ref=ppx_yo2ov_dt_b_fed_asin_title) | IMX708 |
-| Addressable LED strip | Face ring | Pixel count TBD | 5 | ≤0.06 (per LED) | ≤0.3 (per 5 LEDs) | Flexible strip | — | Level-shift 3.3 V logic up to 5 V. |
-
-### Audio
-| Component | Role | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Left speaker | Stereo output | TBD (per amplifier) | TBD | TBD | TBD | — | Powered via amplifier module (TBD). |
-| Right speaker | Stereo output | TBD (per amplifier) | TBD | TBD | TBD | — | Match impedance with amplifier selection. |
-
-## Raspberry Pi GPIO Allocation
-
-| Signal | BCM GPIO | Physical Pin | Direction | Notes |
-| --- | --- | --- | --- | --- |
-| Wheel left enable | 5 | 29 | OUT | Active-low enable tied to TB6600 ENA–. |
-| Wheel left direction | 6 | 31 | OUT | HIGH = forward (aligned with sketch/`stepper_pi`). |
-| Wheel left pulse | 13 | 33 | OUT | 20 µs pulses driven via pigpio waveforms. |
-| Wheel right enable | 19 | 35 | OUT | Active-low enable tied to TB6600 ENA–. |
-| Wheel right direction | 26 | 37 | OUT | HIGH = forward. |
-| Wheel right pulse | 21 | 40 | OUT | 20 µs pulses driven via pigpio waveforms. |
-| Step activity LED (optional) | 18 | 12 | OUT | Mirrors Arduino sketch indicator; set to –1 to disable in code. |
-| Turret pan enable (reserved) | 16 | 36 | OUT | Hold for future 12 V driver; keeps left/right bank clustered. |
-| Turret pan direction (reserved) | 20 | 38 | OUT | Shares power rail with future DRV8825. |
-| Turret pan pulse (reserved) | 12 | 32 | OUT | On PWM0 channel for clean timing. |
-| Turret tilt enable (reserved) | 23 | 16 | OUT | Adjacent to 3.3 V rail for level-shifter board. |
-| Turret tilt direction (reserved) | 24 | 18 | OUT | Reserve until tilt hardware is finalized. |
-| Turret tilt pulse (reserved) | 25 | 22 | OUT | Close to other outputs for ribbon routing. |
-| I²C bus (shared) | 2 (SDA), 3 (SCL) | 3, 5 | BIDIR | Pull-ups already on Pi; available for IMU, expanders, or eventual Arduino bridge. |
-| UART console | 14 (TXD), 15 (RXD) | 8, 10 | BIDIR | Keep free for debug or MCU handoff. |
-
-This allocation keeps the wheel pair fully defined (7 GPIOs) and stages an additional six outputs for the turret axes, totaling 13 dedicated control lines. Even after reserving I²C and UART, more than a dozen general-purpose pins remain for peripherals (limit switches, LEDs, relays). The Arduino Mega only becomes necessary once the remaining GPIO budget can no longer absorb new sensors or when strict electrical isolation is required.
-
-## Open Items
-| Item | Status | Next Step |
-| --- | --- | --- |
-| Head stepper motor selection | Pending | Determine torque requirements and mechanical constraints. |
-| Projector specification | Selected | Locked on NEBULA Capsule Air (720p, 150 ANSI); confirm PD power profile. |
-| Sensor placement plan | Pending | Draft layout for ultrasonic and Sharp IR modules; validate wiring paths. |
-| Power budget verification | Pending | Sum draw across motors, compute, sensors, and converters; size fuses accordingly. |
-| Projector integration | In progress | Design mount plus USB-C PD (45 W) power delivery and verify HDMI link to Pi 5. |
-| Pi stepper control service | In progress | Package `stepper_pi` as a systemd service, lock pigpiod daemon parameters, add watchdog telemetry. |
-| Arduino co-processor plan | Deferred | Revisit once GPIO budget tightens or analog sensing requires dedicated ADC pins. |
-| Shutter motor/driver selection | Pending | Choose H-bridge module and projector shutter motor torque requirements. |
-| Limit switch hardware | Pending | Select housing and lever style for pan/shutter homing switches; confirm wiring strain relief. |
-
-## Bring-up Utilities
-- `i2c-test/`: Arduino sketch and Raspberry Pi client for exercising the Pi↔Arduino I²C link, verifying limit switch wiring, and validating the baseline command protocol (ping, telemetry, LED override). See `i2c-test/README.md` for setup aligned with the selections above.
-
-## I/O & Pin Planning
-| Device / Bus | Qty | Pins (each) | Total Pins | Notes |
-| --- | --- | --- | --- | --- |
-| Wheel stepper drivers (Pi direct) | 2 | Step, Dir, Enable (3) | 6 | GPIO5/6/13/19/26/21 already assigned; enable lines stay independent for quick disable. |
-| Turret stepper drivers (reserved) | 2 | Step, Dir, Enable (3) | 6 | GPIO16/20/12/23/24/25 earmarked but unused until turret hardware lands. |
-| Step activity LED | 1 | GPIO (1) | 1 | Optional indicator on GPIO18; disable in software if unused. |
-| Limit switches | 2 | Signal (1) | 2 | Plan to land directly on Pi unless electrical noise dictates isolation. |
-| Ultrasonic modules | 2 | Trigger, Echo (2) | 4 | Could consume four Pi GPIOs; reassess once sensor set is fixed or migrate to I²C expander. |
-| Sharp IR distance sensors | ~10 | Analog (1) | ~10 | Requires ADC front-end (e.g., MCP3008 over SPI) or future Arduino bridge. |
-| Xbox Kinect | 1 | USB | 0 | Draws only from USB 3.0. |
-| Xbox controller dongle | 1 | USB | 0 | Already present for joystick input. |
-| Camera (CSI) | 1 | CSI lanes | 0 | Dedicated ribbon port, no GPIO impact. |
-| Addressable LED strip | 1 | Data (1) | 1 | Consider PWM-capable pin with level shifting (GPIO18 already in use; look at GPIO10/12). |
-| Audio amp control | 1 | Enable / I²C | 1–2 | Use spare GPIO or share Pi I²C bus. |
-| Optional Arduino co-processor | 1 | SDA, SCL (2) | 2 | Add later if analog sensing or safety interlocks outgrow Pi GPIO budget. |
-| Budget margin | — | — | ≥8 | Remaining pins cover future sensors; shift to Arduino when margin drops below 4 spare GPIOs. |
-
-### Pin mitigation options
-- Offload high-rate GPIO to a microcontroller (e.g., RP2040, Arduino) and bridge via USB/UART.
-- Add I²C GPIO expanders (MCP23017, TCA9548A) or SPI shift registers for sensor triggering.
-- Share enable signals across compatible stepper drivers and use analog multiplexers to fan-in the Sharp IR array.
-
+| Mini Projector | Visual output | 720p (150 ANSI) | 5–20 (USB-C PD) | ≤2.25 | ≤45 | Ø2.7" × 5.5" | [NEBULA Capsule Air](https://www.amazon.com/dp/B0CWV1S7B4?ref=ppx_yo2ov_dt_b_fed_asin_title&th=1) | Built-in 34 Wh battery; integrate 45 W USB-C PD or leverage internal pack. |
+| Camera | Vision input | 12 MP, 75° FoV; autofocus | 5 | ≤0.5 | ≤2.5 | 1.50" × 1.50" × 0.71" (w/ adapter) | [Arducam](https://www.amazon.com/dp/B0C9PYCV9S?ref=ppx_yo2ov_dt_b_fed_asin_title) | IMX708 |
+| Addressable LED strip | Face ring | Pixel count TBD | 5 | ≤0.06 (per LED) | ≤0.3 (per 5 LEDs) | Flexible strip | — | Level-shift 3.3 V logic up to 5 V. |
