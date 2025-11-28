@@ -37,6 +37,9 @@ function Get-MermaidBlocks {
     param([string]$MarkdownPath)
 
     $content = Get-Content -Path $MarkdownPath -Raw
+    if ($null -eq $content) {
+        return @()
+    }
     $regex = [regex]'```mermaid\s+([\s\S]*?)```'
     $matches = $regex.Matches($content)
 
@@ -67,10 +70,27 @@ function Get-MermaidBlocks {
     return $blocks
 }
 
+function Get-MermaidCliPath {
+    param([string]$RepoRoot)
+
+    $binDir = Join-Path $RepoRoot "node_modules/.bin"
+    $candidates = @("mmdc.cmd", "mmdc.ps1", "mmdc")
+
+    foreach ($candidate in $candidates) {
+        $resolved = Join-Path $binDir $candidate
+        if (Test-Path -Path $resolved) {
+            return $resolved
+        }
+    }
+
+    return $null
+}
+
 function Render-MermaidBlock {
     param(
         [string]$DiagramSource,
-        [string]$AbsoluteOutputPath
+        [string]$AbsoluteOutputPath,
+        [string]$RepoRoot
     )
 
     $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "marp-mermaid"
@@ -87,10 +107,18 @@ function Render-MermaidBlock {
         New-Item -ItemType Directory -Path $outputDirectory | Out-Null
     }
 
-    Throw-IfMissingCommand -CommandName "npx"
+    $localCli = $null
+    if ($RepoRoot) {
+        $localCli = Get-MermaidCliPath -RepoRoot $RepoRoot
+    }
 
-    $arguments = @("--yes", "@mermaid-js/mermaid-cli", "-i", $tempFile, "-o", $fullOutputPath)
-    & npx @arguments
+    if ($localCli) {
+        & $localCli "-i" $tempFile "-o" $fullOutputPath
+    } else {
+        Throw-IfMissingCommand -CommandName "npx"
+        $arguments = @("--yes", "-p", "@mermaid-js/mermaid-cli", "--", "mmdc", "-i", $tempFile, "-o", $fullOutputPath)
+        & npx @arguments
+    }
 
     if ($LASTEXITCODE -ne 0) {
         throw "Mermaid CLI exited with code $LASTEXITCODE."
@@ -107,19 +135,19 @@ if ($AllReadmes) {
         Where-Object { $_.FullName -notmatch "\\node_modules\\" -and $_.FullName -notmatch "\\.git\\" }
 
     foreach ($file in $readmeFiles) {
-        [array]$blocks = Get-MermaidBlocks -MarkdownPath $file.FullName
-        if ($blocks.Count -eq 0) {
+        $blocks = Get-MermaidBlocks -MarkdownPath $file.FullName
+        if (-not $blocks) {
             continue
         }
 
-        foreach ($block in $blocks) {
+        foreach ($block in @($blocks)) {
             if (-not $block.OutputPath) {
                 throw "No mermaid-output comment found in '$($block.MarkdownPath)' for diagram index $($block.Index). Add <!-- mermaid-output: relative/path.png --> before the code block."
             }
 
             $absoluteOutputPath = Resolve-OutputPath -RelativeOrAbsolutePath $block.OutputPath -RepoRoot $repoRoot
             Write-Host "Rendering $($file.FullName) diagram #$($block.Index) -> $absoluteOutputPath"
-            Render-MermaidBlock -DiagramSource $block.Source -AbsoluteOutputPath $absoluteOutputPath
+            Render-MermaidBlock -DiagramSource $block.Source -AbsoluteOutputPath $absoluteOutputPath -RepoRoot $repoRoot
         }
     }
 
@@ -130,7 +158,8 @@ if (-not (Test-Path -Path $InputPath)) {
     throw "Could not locate input markdown file at '$InputPath'."
 }
 
-[array]$blocks = Get-MermaidBlocks -MarkdownPath $InputPath
+$blocks = Get-MermaidBlocks -MarkdownPath $InputPath
+$blocks = @($blocks)
 
 if ($blocks.Count -eq 0) {
     throw "No mermaid code block was found in '$InputPath'."
@@ -151,4 +180,4 @@ if ($PSBoundParameters.ContainsKey('OutputPath')) {
     throw "No output path provided. Specify -OutputPath or add <!-- mermaid-output: relative/path.png --> before the mermaid block."
 }
 
-Render-MermaidBlock -DiagramSource $selected.Source -AbsoluteOutputPath $targetOutputPath
+Render-MermaidBlock -DiagramSource $selected.Source -AbsoluteOutputPath $targetOutputPath -RepoRoot $repoRoot
