@@ -13,6 +13,13 @@
 #include <iostream>
 #include <thread>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+// Requires: sudo apt install nlohmann-json3-dev
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
 
 namespace {
 constexpr int LED_GPIO = 18;                    // Set to -1 to disable the activity LED output.
@@ -23,11 +30,22 @@ constexpr unsigned MOTOR_RIGHT_ENABLE = 19;
 constexpr unsigned MOTOR_RIGHT_DIRECTION = 26;
 constexpr unsigned MOTOR_RIGHT_PULSE = 21;
 
+// Turret Pan/Tilt Pins
+constexpr unsigned MOTOR_PAN_ENABLE = 23;
+constexpr unsigned MOTOR_PAN_DIRECTION = 24;
+constexpr unsigned MOTOR_PAN_PULSE = 25;
+
+constexpr unsigned MOTOR_TILT_ENABLE = 12;
+constexpr unsigned MOTOR_TILT_DIRECTION = 16;
+constexpr unsigned MOTOR_TILT_PULSE = 20;
+
 constexpr bool ENABLE_ACTIVE_LEVEL = 0;         // LOW keeps stepper drivers enabled on many boards.
 constexpr bool PULSE_ACTIVE_LEVEL = 1;          // HIGH drives the pulse line active.
 
 constexpr int JOYSTICK_AXIS_X = 0;              // Xbox left stick X axis index.
 constexpr int JOYSTICK_AXIS_Y = 1;              // Xbox left stick Y axis index.
+constexpr int JOYSTICK_AXIS_RX = 3;             // Xbox right stick X axis index.
+constexpr int JOYSTICK_AXIS_RY = 4;             // Xbox right stick Y axis index.
 constexpr int JOYSTICK_DEADZONE = 25;
 constexpr int16_t MAX_SPEED_STEPS_PER_SEC = 100;
 constexpr unsigned PULSE_WIDTH_US = 20;
@@ -36,6 +54,10 @@ constexpr unsigned LOG_INTERVAL_MS = 100;
 
 constexpr int MAX_JOYSTICK_VALUE = 32767;       // Signed 16-bit joystick axis max.
 constexpr char DEFAULT_JOYSTICK_PATH[] = "/dev/input/js0";
+constexpr int UDP_PORT = 5005;
+constexpr int UDP_BUFFER_SIZE = 4096;
+
+std::atomic<int16_t> sharedAxes[8];
 
 struct MotorPins {
     unsigned enable;
@@ -166,6 +188,72 @@ int scaleAxis(int16_t raw) {
     return clamp(scaled, -512, 512);
 }
 
+void udpWorker() {
+    int sockfd;
+    char buffer[UDP_BUFFER_SIZE];
+    struct sockaddr_in servaddr, cliaddr;
+
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("socket creation failed");
+        return;
+    }
+
+    memset(&servaddr, 0, sizeof(servaddr));
+    memset(&cliaddr, 0, sizeof(cliaddr));
+
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = INADDR_ANY;
+    servaddr.sin_port = htons(UDP_PORT);
+
+    if (bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+        perror("bind failed");
+        close(sockfd);
+        return;
+    }
+
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000; // 100ms timeout
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+
+    std::cout << "UDP Listener started on port " << UDP_PORT << std::endl;
+
+    while (running.load(std::memory_order_relaxed)) {
+        socklen_t len = sizeof(cliaddr);
+        int n = recvfrom(sockfd, (char *)buffer, UDP_BUFFER_SIZE,
+                    MSG_WAITALL, (struct sockaddr *) &cliaddr, &len);
+        if (n > 0) {
+            buffer[n] = '\0';
+            try {
+                auto j = json::parse(buffer);
+                if (j.contains("joysticks")) {
+                    auto& joy = j["joysticks"];
+                    // Unity Axis: -1 to 1. 
+                    // Linux Joystick: -32767 to 32767.
+                    // Note: Unity Vertical is usually +1 for Up. Linux Joystick Y is -32767 for Up.
+                    // We will map Unity +1 to -32767 so the existing logic works.
+                    
+                    if (joy.contains("left") && joy["left"].is_array()) {
+                        float x = joy["left"][0];
+                        float y = joy["left"][1];
+                        sharedAxes[JOYSTICK_AXIS_X].store(static_cast<int16_t>(x * MAX_JOYSTICK_VALUE));
+                        sharedAxes[JOYSTICK_AXIS_Y].store(static_cast<int16_t>(-y * MAX_JOYSTICK_VALUE));
+                    }
+                    if (joy.contains("right") && joy["right"].is_array()) {
+                        float x = joy["right"][0];
+                        float y = joy["right"][1];
+                        sharedAxes[JOYSTICK_AXIS_RX].store(static_cast<int16_t>(x * MAX_JOYSTICK_VALUE));
+                        sharedAxes[JOYSTICK_AXIS_RY].store(static_cast<int16_t>(-y * MAX_JOYSTICK_VALUE));
+                    }
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "JSON parse error: " << e.what() << '\n';
+            }
+        }
+    }
+    close(sockfd);
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -186,19 +274,25 @@ int main(int argc, char* argv[]) {
 
     MotorState motorLeft{{MOTOR_LEFT_ENABLE, MOTOR_LEFT_DIRECTION, MOTOR_LEFT_PULSE}};
     MotorState motorRight{{MOTOR_RIGHT_ENABLE, MOTOR_RIGHT_DIRECTION, MOTOR_RIGHT_PULSE}};
+    MotorState motorPan{{MOTOR_PAN_ENABLE, MOTOR_PAN_DIRECTION, MOTOR_PAN_PULSE}};
+    MotorState motorTilt{{MOTOR_TILT_ENABLE, MOTOR_TILT_DIRECTION, MOTOR_TILT_PULSE}};
+
     ensurePinSetup(motorLeft.pins);
     ensurePinSetup(motorRight.pins);
+    ensurePinSetup(motorPan.pins);
+    ensurePinSetup(motorTilt.pins);
 
     int joystickFd = openJoystick(joystickPath);
     if (joystickFd < 0) {
-        gpioTerminate();
-        return 1;
+        std::cout << "No local joystick found. Waiting for network input..." << std::endl;
     }
 
     std::thread leftThread(motorWorker, std::ref(motorLeft));
     std::thread rightThread(motorWorker, std::ref(motorRight));
+    std::thread panThread(motorWorker, std::ref(motorPan));
+    std::thread tiltThread(motorWorker, std::ref(motorTilt));
+    std::thread netThread(udpWorker);
 
-    int16_t axes[8] = {0};
     int xCommandRaw = 0;
     int yCommandRaw = 0;
     int leftMixCommand = 0;
@@ -207,32 +301,41 @@ int main(int argc, char* argv[]) {
     auto nextLogTime = std::chrono::steady_clock::now();
 
     while (running.load(std::memory_order_relaxed)) {
-        js_event event;
-        ssize_t bytes = read(joystickFd, &event, sizeof(event));
-        while (bytes == sizeof(event)) {
-            event.type &= ~JS_EVENT_INIT;
-            if (event.type == JS_EVENT_AXIS && event.number < 8) {
-                axes[event.number] = event.value;
+        if (joystickFd >= 0) {
+            js_event event;
+            ssize_t bytes = read(joystickFd, &event, sizeof(event));
+            while (bytes == sizeof(event)) {
+                event.type &= ~JS_EVENT_INIT;
+                if (event.type == JS_EVENT_AXIS && event.number < 8) {
+                    sharedAxes[event.number].store(event.value);
+                }
+                bytes = read(joystickFd, &event, sizeof(event));
             }
-            bytes = read(joystickFd, &event, sizeof(event));
+
+            if (bytes < 0 && errno != EAGAIN) {
+                std::cerr << "Joystick read error: " << std::strerror(errno) << '\n';
+                close(joystickFd);
+                joystickFd = -1;
+            }
         }
 
-        if (bytes < 0 && errno != EAGAIN) {
-            std::cerr << "Joystick read error: " << std::strerror(errno) << '\n';
-            break;
-        }
-
-        int xScaled = scaleAxis(axes[JOYSTICK_AXIS_X]);
-        int yScaled = -scaleAxis(axes[JOYSTICK_AXIS_Y]);  // Invert so forward stick is positive.
+        int xScaled = scaleAxis(sharedAxes[JOYSTICK_AXIS_X].load());
+        int yScaled = -scaleAxis(sharedAxes[JOYSTICK_AXIS_Y].load());  // Invert so forward stick is positive.
+        int rxScaled = scaleAxis(sharedAxes[JOYSTICK_AXIS_RX].load());
+        int ryScaled = -scaleAxis(sharedAxes[JOYSTICK_AXIS_RY].load()); // Invert so up is positive.
 
         xCommandRaw = (std::abs(xScaled) < JOYSTICK_DEADZONE) ? 0 : xScaled;
         yCommandRaw = (std::abs(yScaled) < JOYSTICK_DEADZONE) ? 0 : yScaled;
+        int panCommand = (std::abs(rxScaled) < JOYSTICK_DEADZONE) ? 0 : rxScaled;
+        int tiltCommand = (std::abs(ryScaled) < JOYSTICK_DEADZONE) ? 0 : ryScaled;
 
         leftMixCommand = clamp(yCommandRaw + xCommandRaw, -512, 512);
         rightMixCommand = clamp(yCommandRaw - xCommandRaw, -512, 512);
 
         motorLeft.targetSpeed.store(commandToSpeed(leftMixCommand), std::memory_order_relaxed);
         motorRight.targetSpeed.store(commandToSpeed(rightMixCommand), std::memory_order_relaxed);
+        motorPan.targetSpeed.store(commandToSpeed(panCommand), std::memory_order_relaxed);
+        motorTilt.targetSpeed.store(commandToSpeed(tiltCommand), std::memory_order_relaxed);
 
         if (LED_GPIO >= 0 && stepIndicatorOn.load(std::memory_order_relaxed)) {
             uint64_t deadline = stepIndicatorDeadlineMs.load(std::memory_order_relaxed);
@@ -246,10 +349,14 @@ int main(int argc, char* argv[]) {
         if (now >= nextLogTime) {
             std::cout << "JOY X=" << xCommandRaw
                       << " Y=" << yCommandRaw
+                      << " RX=" << panCommand
+                      << " RY=" << tiltCommand
                       << " MixL=" << leftMixCommand
                       << " MixR=" << rightMixCommand
                       << " SpdL=" << motorLeft.targetSpeed.load(std::memory_order_relaxed)
                       << " SpdR=" << motorRight.targetSpeed.load(std::memory_order_relaxed)
+                      << " SpdP=" << motorPan.targetSpeed.load(std::memory_order_relaxed)
+                      << " SpdT=" << motorTilt.targetSpeed.load(std::memory_order_relaxed)
                       << std::endl;
             nextLogTime = now + std::chrono::milliseconds(LOG_INTERVAL_MS);
         }
@@ -265,6 +372,15 @@ int main(int argc, char* argv[]) {
     }
     if (rightThread.joinable()) {
         rightThread.join();
+    }
+    if (panThread.joinable()) {
+        panThread.join();
+    }
+    if (tiltThread.joinable()) {
+        tiltThread.join();
+    }
+    if (netThread.joinable()) {
+        netThread.join();
     }
 
     gpioTerminate();
