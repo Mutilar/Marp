@@ -1,0 +1,13 @@
+[Unit]
+Description=Robot Stepper Controller
+After=wifi-direct.service network.target
+
+[Service]
+ExecStart=WORKING_DIR/build/stepper_pi
+WorkingDirectory=WORKING_DIR
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

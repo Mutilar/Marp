@@ -1,9 +1,81 @@
-# Raspberry Pi Setup for `stepper_pi.cpp`
+# Raspberry Pi Robot Controller
 
-This guide walks through preparing a fresh Raspberry Pi to build and run the stepper controller in `stepper_pi.cpp`. Follow the steps in order on a Rasberry Pi running Raspberry Pi OS (Bullseye or newer).
+This project runs on a Raspberry Pi 5 to control a 4-axis robot (2 Drive Steppers + 2 Turret Steppers). It supports control via a local USB Joystick (Xbox controller) or via UDP network packets (e.g., from a Steam Deck over Wi-Fi Direct). It also streams low-latency H.264 video to the connected client.
+
+## Features
+*   **Motor Control**: Drives 4 stepper motors using `pigpio` for precise timing.
+*   **Dual Input**: Seamlessly switches between local USB Joystick and Network UDP commands.
+*   **Safety**: Auto-stops motors if network connection is lost for >1 second.
+*   **Wi-Fi Direct**: Acts as a Group Owner (Hotspot) for easy field connection without a router.
+*   **Video Streaming**: Low-latency hardware-accelerated streaming via `rpicam-vid`.
+*   **Systemd Integration**: Auto-starts all services on boot.
+
+## System Architecture
+
+![Architecture](../../assets/diagrams/architecture.png)
+
+> Color key: **Blue**=Client, **Yellow**=Services, **Purple**=Hardware
+
+<details>
+<summary>Mermaid source</summary>
+<!-- mermaid-output: assets/diagrams/architecture.png -->
+```mermaid
+graph TD
+    %% Nodes
+    subgraph Client["Steam Deck (Client)"]
+        Unity["Unity App"]
+    end
+
+    subgraph Robot["Raspberry Pi 5"]
+        subgraph Services["Systemd Services"]
+            WifiService["wifi-direct.service<br/>(Network Setup)"]
+            StepService["stepper-controller.service<br/>(stepper_pi)"]
+            VidService["video-stream.service<br/>(rpicam-vid)"]
+        end
+        
+        subgraph Hardware
+            Camera["Pi Camera"]
+            Drivers["Stepper Drivers (x4)"]
+            Motors["Motors (L/R/Pan/Tilt)"]
+            LocalJoy["Local Joystick (Optional)"]
+        end
+    end
+
+    %% Network Interactions
+    Unity -.->|Wi-Fi Direct Connection| WifiService
+    Unity -->|UDP :5005<br/>JSON Command| StepService
+    VidService -->|UDP :5600<br/>H.264 Stream| Unity
+
+    %% Internal Interactions
+    StepService -->|GPIO| Drivers
+    Drivers --> Motors
+    LocalJoy -->|USB| StepService
+    Camera -->|CSI| VidService
+
+    %% Styling
+    classDef client fill:#d4e6f1,stroke:#2874a6,stroke-width:2px,color:black;
+    classDef service fill:#fcf3cf,stroke:#d4ac0d,stroke-width:2px,color:black;
+    classDef hardware fill:#ebdef0,stroke:#76448a,stroke-width:2px,color:black;
+    
+    class Unity client;
+    class WifiService,StepService,VidService service;
+    class Camera,Drivers,Motors,LocalJoy hardware;
+```
+</details>
+
+## Hardware Pinout (BCM GPIO)
+
+| Function | Enable | Direction | Pulse |
+| :--- | :--- | :--- | :--- |
+| **Left Drive** | 5 | 6 | 13 |
+| **Right Drive** | 19 | 26 | 21 |
+| **Turret Pan** | 23 | 24 | 25 |
+| **Turret Tilt** | 12 | 16 | 20 |
+
+*   **Activity LED**: GPIO 18
 
 ## 1. Base System Prep
-- Flash Raspberry Pi OS (32- or 64-bit) Lite or Desktop to a microSD card and boot the Pi.
+- Flash Raspberry Pi OS (Bookworm or newer) to a microSD card and boot the Pi.
 - Connect the Pi to the network and update the base image:
   ```bash
   sudo apt update
@@ -11,16 +83,102 @@ This guide walks through preparing a fresh Raspberry Pi to build and run the ste
   sudo reboot
   ```
 
-## 2. Install Build & Runtime Dependencies
-- Install the toolchain and libraries required by `stepper_pi.cpp`:
-  ```bash
-  sudo apt install -y build-essential pigpio libpigpio-dev joystick git
-  ```
-  - `build-essential` supplies `g++` and standard headers.
-  - `pigpio` and `libpigpio-dev` provide the GPIO daemon and C client library.
-  - `joystick` installs utilities like `jstest` for validating gamepad input.
+## 2. Install Dependencies
+Install the toolchain, libraries, and utilities:
+```bash
+sudo apt install -y build-essential cmake pigpio libpigpio-dev joystick git nlohmann-json3-dev dnsmasq psmisc
+```
+- `pigpio`: GPIO library for high-speed stepping.
+- `nlohmann-json3-dev`: For parsing UDP JSON packets.
+- `dnsmasq`: DHCP server for Wi-Fi Direct.
 
-## 3. Install Visual Studio Code (Optional)
+## 3. Build the Controller
+The project uses CMake.
+
+1.  Navigate to the `pi` directory:
+    ```bash
+    cd ~/Marp/Stepper/pi
+    ```
+2.  Create a build directory and compile:
+    ```bash
+    mkdir build && cd build
+    cmake ..
+    make
+    ```
+3.  The binary `stepper_pi` will be created in the `build` folder.
+
+## 4. Installation (Auto-Start)
+To set up Wi-Fi Direct, Video Streaming, and the Motor Controller to run automatically on boot:
+
+1.  Run the installation script as root:
+    ```bash
+    cd ~/Marp/Stepper/pi/scripts
+    chmod +x *.sh
+    sudo ./install-services.sh
+    ```
+2.  This installs three systemd services:
+    *   `wifi-direct.service`: Sets up the P2P network `DIRECT-xx-Robot-Pi5`.
+    *   `stepper-controller.service`: Runs the robot logic.
+    *   `video-stream.service`: Streams camera feed to the connected client.
+
+## 5. Manual Usage
+If you prefer to run things manually (e.g., for debugging):
+
+**Start Wi-Fi Direct:**
+```bash
+sudo ./scripts/setup-wifi-direct.sh
+```
+*Connect your client (Steam Deck) to the SSID shown (e.g., `DIRECT-xx-Robot-Pi5`).*
+
+**Start Motor Controller:**
+```bash
+sudo ./build/stepper_pi [optional_joystick_path]
+```
+
+**Start Video Stream:**
+```bash
+./scripts/start-video-stream.sh [CLIENT_IP]
+```
+*Defaults to `192.168.4.2`.*
+
+## 6. Client Connection (Steam Deck / Unity)
+*   **Network**: Connect to the Pi's Wi-Fi Direct network.
+*   **UDP Control Port**: `5005` (Send JSON packets to `192.168.4.1`).
+*   **Video Stream Port**: `5600` (Listen for raw H.264 UDP).
+
+**JSON Packet Format:**
+```json
+{
+  "joysticks": {
+    "left": [x_float, y_float],   // Drive: -1.0 to 1.0
+    "right": [x_float, y_float]  // Turret: -1.0 to 1.0
+  }
+}
+```
+
+## 7. Kinect Support with libfreenect
+If you plan to steer the robot with a Kinect (RGB/depth, accelerometer, motor/LED control), the repository vendors [`OpenKinect/libfreenect`](https://github.com/OpenKinect/libfreenect) as a submodule.
+
+1. **Sync the submodule**
+  ```bash
+  cd ~/Marp
+  git submodule update --init --recursive Stepper/pi/libfreenect
+  ```
+
+2. **Install Kinect build prerequisites**
+  ```bash
+  sudo apt install -y libusb-1.0-0-dev freeglut3-dev mesa-utils python3
+  ```
+
+3. **Build libfreenect**
+  ```bash
+  cd ~/Marp/Stepper/pi/libfreenect
+  mkdir -p build && cd build
+  cmake -L .. -DBUILD_PYTHON3=ON
+  make -j$(nproc)
+  ```
+
+## 8. Optional: VS Code Setup
 To develop and debug directly on the Pi, install the official VS Code build for ARM:
 ```bash
 sudo apt install -y curl gpg
@@ -30,125 +188,3 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/package
 sudo apt update
 sudo apt install -y code
 ```
-- Launch VS Code with `code`. The first run may prompt to install recommended extensions.
-- For remote editing from a desktop, install the **Remote - SSH** extension locally and connect to the Pi using the same repository path.
-
-## 4. Enable the pigpio Daemon
-`stepper_pi` talks to pigpio through the daemon. Enable and start it so it is available after every reboot:
-```bash
-sudo systemctl enable pigpiod
-sudo systemctl start pigpiod
-```
-You can check its status with `systemctl status pigpiod`. All `pigpio` clients, including `stepper_pi`, require the daemon to be running.
-
-## 5. Retrieve the Project Files
-If the project is not already on the Pi:
-```bash
-cd ~
-git clone https://github.com/Mutilar/Marp.git
-cd Marp/Stepper/pi
-```
-Otherwise, copy the repository into place via your preferred method and change into `Stepper/pi`.
-
-## 6. Build the Controller Binary
-Compile the program with the required libraries:
-```bash
-g++ -std=c++20 stepper_pi.cpp -lpigpio -lrt -pthread -o stepper_pi
-```
-- `-lpigpio` links the pigpio client library.
-- `-lrt` and `-pthread` satisfy pigpio's runtime dependencies.
-- Adjust the output name (`-o stepper_pi`) if you prefer a different binary name.
-
-Rebuild after every code change.
-
-## 7. Wire the Hardware
-Match the Raspberry Pi BCM GPIO numbers defined in the code with your stepper driver and optional activity LED:
-
-| Signal | BCM GPIO | Notes |
-| --- | --- | --- |
-| `LED_GPIO` | `18` | Set to -1 in code to disable. Drives an indicator LED Active High. |
-| `MOTOR_LEFT_ENABLE` | `5` (Pin 29) | Active Low. Holds the left driver enabled when low. |
-| `MOTOR_LEFT_DIRECTION` | `6` (Pin 31) | Forward = High (code default). |
-| `MOTOR_LEFT_PULSE` | `13` (Pin 33) | Active High pulse; minimum width is 20 µs. |
-| `MOTOR_RIGHT_ENABLE` | `19` (Pin 35) | Active Low. |
-| `MOTOR_RIGHT_DIRECTION` | `26` (Pin 37) | Forward = High. |
-| `MOTOR_RIGHT_PULSE` | `21` (Pin 40) | Active High pulse. |
-
-Additional wiring guidance:
-- Tie the Pi ground to the stepper driver logic ground.
-- Confirm the driver accepts 3.3 V logic; use level shifting if it requires 5 V.
-- Keep enable lines asserted (low) only when the motor should hold torque.
-- Add current-limiting resistors or opto-isolation if your driver recommends them.
-
-## 8. Validate Joystick Input (Optional)
-`stepper_pi` reads joystick events from `/dev/input/js0` by default. Before running the program:
-```bash
-jstest /dev/input/js0
-```
-- Move the analog stick and confirm axes 0 (X) and 1 (Y) respond.
-- If the joystick enumerates at a different path, pass it as the first argument when launching `stepper_pi` (example: `sudo ./stepper_pi /dev/input/js1`).
-
-## 9. Run the Controller
-Execute the binary with root privileges (needed for GPIO and joystick access unless you add udev rules):
-```bash
-cd ~/Marp/Stepper/pi
-sudo ./stepper_pi
-```
-- Terminate with `Ctrl+C`. The program handles `SIGINT`/`SIGTERM` and will shut down both motor workers before exiting.
-- Expect console logs every 100 ms showing joystick mix and target speed values.
-- The LED on GPIO 18, if connected, lights briefly during step bursts.
-
-## 10. Troubleshooting Checklist
-- **pigpiod not running**: `sudo systemctl status pigpiod` → if inactive, `sudo systemctl restart pigpiod`.
-- **`Failed to open joystick`**: Re-check USB connection, ensure the `joystick` package is installed, and verify the device path.
-- **Stepper driver always disabled**: Ensure ENA pins are wired correctly; the code uses active-low enable (`ENABLE_ACTIVE_LEVEL == 0`).
-- **Jerky or stalled motion**: Confirm motor supply voltage/current and tune `MAX_SPEED_STEPS_PER_SEC` or `JOYSTICK_DEADZONE` in the source to suit your hardware.
-
-## 11. Optional Improvements
-- Add udev rules to grant non-root access to `/dev/input/js*` and `/dev/pigpio`. Place a rule in `/etc/udev/rules.d/` and reload with `sudo udevadm control --reload`.
-- Cross-compile on a desktop using the Raspberry Pi toolchain if builds on the Pi are too slow.
-- Enable SSH and `tmux` or `screen` for remote development sessions.
-
-## 12. Kinect Support with libfreenect
-If you plan to steer the robot with a Kinect (RGB/depth, accelerometer, motor/LED control), the repository now vendors [`OpenKinect/libfreenect`](https://github.com/OpenKinect/libfreenect) as a submodule under `Stepper/pi/libfreenect`. The high-level workflow is:
-
-1. **Sync the submodule**
-  ```bash
-  cd ~/Marp
-  git submodule update --init --recursive Stepper/pi/libfreenect
-  ```
-  - Re-run the command whenever you pull upstream changes that touch the submodule.
-
-2. **Install Kinect build prerequisites**
-  ```bash
-  sudo apt install -y libusb-1.0-0-dev cmake build-essential freeglut3-dev mesa-utils python3
-  ```
-  - `libusb` is required by the driver, while `freeglut`/`mesa` enable the OpenGL sample viewers.
-
-3. **Build libfreenect (on the Pi)**
-  ```bash
-  cd ~/Marp/Stepper/pi/libfreenect
-  mkdir -p build && cd build
-  cmake -L .. -DBUILD_PYTHON3=ON   # omit -DBUILD_PYTHON3 if you only need the C API
-  make -j$(nproc)
-  ```
-  - Use `cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo` for a faster, debuggable build.
-
-4. **Try the example viewers**
-  ```bash
-  cd ~/Marp/Stepper/pi/libfreenect/build/bin
-  sudo ./glview         # RGB + depth window
-  sudo ./freenect-glview  # alternate viewer
-  ```
-  - Run the binaries with `sudo` so libfreenect can access USB without extra udev rules.
-
-5. **(Optional) Upload audio firmware**
-  ```bash
-  cd ~/Marp/Stepper/pi/libfreenect/build
-  sudo ./bin/freenect-loader
-  ```
-  - Newer Kinect hardware needs the firmware for audio, LED, or motor control. The loader injects it right after `freenect_init()`.
-
-Once the Kinect stack is working, you can begin plumbing its depth/RGB or accelerometer data into `stepper_pi.cpp` alongside joystick input. Keep `pigpiod` running in the background; libfreenect operates entirely in userspace and does not conflict with GPIO access.
-
-Following these steps provides a repeatable path to compile and run the stepper control logic on any Raspberry Pi that meets the hardware requirements.

@@ -9,6 +9,9 @@
 #include <cstring>
 #include <nlohmann/json.hpp>
 
+#include <ifaddrs.h>
+#include <netdb.h>
+
 using json = nlohmann::json;
 
 uint64_t currentMs() {
@@ -27,6 +30,25 @@ InputManager::~InputManager() {
 
 void InputManager::start(const char* joystickPath) {
     running.store(true);
+    
+    // Log available network interfaces
+    struct ifaddrs *ifaddr, *ifa;
+    if (getifaddrs(&ifaddr) != -1) {
+        std::cout << "Available Network Interfaces:" << std::endl;
+        for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+            if (ifa->ifa_addr == NULL) continue;
+            if (ifa->ifa_addr->sa_family == AF_INET) {
+                char host[NI_MAXHOST];
+                int s = getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in),
+                                    host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
+                if (s == 0) {
+                    std::cout << "  " << ifa->ifa_name << ": " << host << std::endl;
+                }
+            }
+        }
+        freeifaddrs(ifaddr);
+    }
+
     std::string path = joystickPath ? joystickPath : Constants::DEFAULT_JOYSTICK_PATH;
     
     joystickThread = std::thread(&InputManager::joystickWorker, this, path);
