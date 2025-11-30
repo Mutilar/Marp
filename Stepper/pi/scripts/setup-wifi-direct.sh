@@ -29,6 +29,13 @@ device_name=Robot-Pi5
 p2p_go_intent=15
 p2p_go_ht40=1
 driver_param=use_p2p_group_interface=1
+
+network={
+    ssid="MARP-Robot"
+    psk="marprobot"
+    mode=3
+    disabled=2
+}
 EOF
 
 echo "Stopping conflicting services..."
@@ -45,7 +52,7 @@ sleep 3
 
 # Force Group Owner mode
 echo "Initializing P2P Group..."
-wpa_cli -i "$IFACE" p2p_group_add
+wpa_cli -i "$IFACE" p2p_group_add persistent=0
 
 echo "Waiting for virtual interface $P2P_IFACE..."
 sleep 3

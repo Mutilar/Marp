@@ -24,4 +24,5 @@ fi
 # --width 1280 --height 720: 720p for lower latency/bandwidth
 # --framerate 30
 # --bitrate 2000000: 2Mbps
-$CMD -t 0 --inline --width 1280 --height 720 --framerate 30 --bitrate 2000000 -o udp://$CLIENT_IP:$PORT
+# Pipe to ffmpeg to wrap in MPEG-TS for Unity VideoPlayer compatibility
+$CMD -t 0 --inline --width 1280 --height 720 --framerate 30 --bitrate 2000000 -o - | ffmpeg -i - -c:v copy -f mpegts udp://$CLIENT_IP:$PORT?pkt_size=1316
