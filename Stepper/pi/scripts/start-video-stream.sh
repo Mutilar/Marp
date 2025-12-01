@@ -34,7 +34,7 @@ else
     exit 1
 fi
 
-# Stream H.264 via TCP (Hosting)
+# Stream H.264 via HTTP (Hosting)
 # -t 0: Run forever
 # --inline: Insert SPS/PPS headers for stream recovery
 # --width 1280 --height 720: 720p
@@ -42,8 +42,9 @@ fi
 # --bitrate 1000000: 1Mbps
 # --g 10: Intra-frame every 10 frames (1 sec) for faster recovery
 # --flush: Flush output buffers immediately
-# --listen: Wait for connection
-$CMD -t 0 --inline --width 1280 --height 720 --framerate 10 --bitrate 1000000 --g 10 --flush --libav-format mpegts --low-latency --listen -o tcp://0.0.0.0:$PORT &
+# Pipe to ffmpeg to host as HTTP stream for better Unity compatibility
+# Unity VideoPlayer prefers HTTP over raw TCP.
+$CMD -t 0 --inline --width 1280 --height 720 --framerate 10 --bitrate 1000000 --g 10 --flush --libav-format mpegts -o - | ffmpeg -i - -c copy -f mpegts -listen 1 http://0.0.0.0:$PORT &
 
 PID=$!
 wait $PID
