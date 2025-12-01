@@ -25,15 +25,15 @@ cat > "$CONF_FILE" <<EOF
 ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
 update_config=1
 country=US
-device_name=Robot-Pi5
+device_name=MARP
 p2p_go_intent=15
 p2p_go_ht40=1
 driver_param=use_p2p_group_interface=1
 
 network={
     ssid="MARP-Robot"
-    psk="marprobot"
-    mode=3
+    psk="c74cdffd-63a7-4da7-b935-db49d3fefdfc"
+    mode=2
     disabled=2
 }
 EOF
@@ -79,5 +79,6 @@ dnsmasq -C /tmp/dnsmasq-p2p.conf
 
 echo "Wi-Fi Direct Group Owner started."
 echo "IP: $IP_ADDR"
-echo "Connect your Steam Deck to the Wi-Fi network named 'DIRECT-xx-Robot-Pi5' (or similar)."
+echo "Connect your Steam Deck to the Wi-Fi network named 'MARP-Robot'."
+echo "Password: c74cdffd-63a7-4da7-b935-db49d3fefdfc"
 echo "The Steam Deck should receive an IP in the 192.168.4.x range."

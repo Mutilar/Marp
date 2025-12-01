@@ -3,7 +3,7 @@
 This project runs on a Raspberry Pi 5 to control a 4-axis robot (2 Drive Steppers + 2 Turret Steppers). It supports control via a local USB Joystick (Xbox controller) or via UDP network packets (e.g., from a Steam Deck over Wi-Fi Direct). It also streams low-latency H.264 video to the connected client.
 
 ## Features
-*   **Motor Control**: Drives 4 stepper motors using `pigpio` for precise timing.
+*   **Motor Control**: Drives 4 stepper motors using `lgpio` for precise timing.
 *   **Dual Input**: Seamlessly switches between local USB Joystick and Network UDP commands.
 *   **Safety**: Auto-stops motors if network connection is lost for >1 second.
 *   **Wi-Fi Direct**: Acts as a Group Owner (Hotspot) for easy field connection without a router.
@@ -86,9 +86,9 @@ graph TD
 ## 2. Install Dependencies
 Install the toolchain, libraries, and utilities:
 ```bash
-sudo apt install -y build-essential cmake pigpio libpigpio-dev joystick git nlohmann-json3-dev dnsmasq psmisc
+sudo apt install -y build-essential cmake liblgpio-dev joystick git nlohmann-json3-dev dnsmasq psmisc
 ```
-- `pigpio`: GPIO library for high-speed stepping.
+- `liblgpio-dev`: GPIO library for high-speed stepping.
 - `nlohmann-json3-dev`: For parsing UDP JSON packets.
 - `dnsmasq`: DHCP server for Wi-Fi Direct.
 

@@ -33,6 +33,7 @@ public:
     static constexpr int TILT = 3;
 
 private:
+    int hGpio = -1;
     std::vector<MotorState*> motors;
     std::vector<std::thread> workers;
     std::atomic<bool> running{true};

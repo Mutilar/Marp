@@ -3,7 +3,7 @@ project(stepper_pi)
 
 set(CMAKE_CXX_STANDARD 20)
 
-find_library(PIGPIO_LIB pigpio)
+find_library(LGPIO_LIB lgpio)
 find_library(RT_LIB rt)
 find_library(PTHREAD_LIB pthread)
 
@@ -14,7 +14,7 @@ add_executable(stepper_pi
 )
 
 target_link_libraries(stepper_pi 
-    ${PIGPIO_LIB}
+    ${LGPIO_LIB}
     ${RT_LIB}
     ${PTHREAD_LIB}
 )
