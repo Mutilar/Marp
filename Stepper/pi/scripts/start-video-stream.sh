@@ -8,6 +8,7 @@ PORT=5600
 cleanup() {
     echo "Stopping video stream..."
     pkill -P $$ # Kill child processes
+    pkill -f kinect_stream.py
     exit 0
 }
 trap cleanup SIGINT SIGTERM EXIT
@@ -16,8 +17,13 @@ echo "Cleaning up existing camera processes..."
 systemctl stop video-stream.service 2>/dev/null
 pkill -x rpicam-vid 2>/dev/null
 pkill -x libcamera-vid 2>/dev/null
+pkill -f kinect_stream.py 2>/dev/null
 # Wait a moment for resources to be released
 sleep 1
+
+# Start Kinect Streamer (Background)
+echo "Starting Kinect Streamer..."
+python3 $(dirname "$0")/kinect_stream.py &
 
 # Check for rpicam-vid (Pi 5 / Bullseye+)
 if command -v rpicam-vid &> /dev/null; then
@@ -42,7 +48,8 @@ fi
 # Loop to auto-restart the stream when a client disconnects (ffmpeg exits)
 while true; do
     echo "Starting streaming pipeline..."
-    $CMD -t 0 --inline --width 1280 --height 800 --framerate 24 --bitrate 1000000 --g 10 --flush --libav-format mpegts -o - | ffmpeg -i - -c copy -f mpegts -listen 1 http://0.0.0.0:$PORT
+    #$CMD -t 0 --inline --width 1280 --height 800 --framerate 24 --codec mjpeg -o - | ffmpeg -i - -f mjpeg -listen 1 http://0.0.0.0:$PORT
+    $CMD -t 0 --width 1280 --height 800 --framerate 24 --codec mjpeg -o - | ffmpeg -i - -c:v copy -f mjpeg tcp://0.0.0.0:$PORT?listen=1
     echo "Stream ended (client disconnected?). Restarting in 1s..."
     sleep 1
 done
