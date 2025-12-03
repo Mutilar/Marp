@@ -1,55 +1,66 @@
 #!/bin/bash
 # start-video-stream.sh
-# Streams camera feed to the connected Wi-Fi Direct client.
+# Unified video streaming with hot-swappable sources.
+#
+# This script starts the Video Multiplexer which provides:
+#   - Single persistent MJPEG stream on port 5600
+#   - Web viewer at http://<ip>:5600/
+#   - Hot-swap between: kinect_rgb, kinect_ir, kinect_depth, picam
+#   - TCP control on port 5603
 
+SCRIPT_DIR="$(dirname "$0")"
 PORT=5600
 
-# Cleanup existing camera processes/services to avoid hardware conflicts
+# Cleanup function
 cleanup() {
     echo "Stopping video stream..."
-    pkill -P $$ # Kill child processes
-    pkill -f kinect_stream.py
+    pkill -P $$ 2>/dev/null
+    pkill -f video_multiplexer.py 2>/dev/null
+    pkill -f kinect_stream.py 2>/dev/null
+    pkill -x rpicam-vid 2>/dev/null
+    pkill -x libcamera-vid 2>/dev/null
     exit 0
 }
 trap cleanup SIGINT SIGTERM EXIT
 
-echo "Cleaning up existing camera processes..."
+# Clean up any existing processes
+echo "Cleaning up existing processes..."
 systemctl stop video-stream.service 2>/dev/null
+pkill -f video_multiplexer.py 2>/dev/null
+pkill -f kinect_stream.py 2>/dev/null
 pkill -x rpicam-vid 2>/dev/null
 pkill -x libcamera-vid 2>/dev/null
-pkill -f kinect_stream.py 2>/dev/null
-# Wait a moment for resources to be released
+pkill -x ffmpeg 2>/dev/null
 sleep 1
 
-# Start Kinect Streamer (Background)
-echo "Starting Kinect Streamer..."
-python3 $(dirname "$0")/kinect_stream.py &
+# Parse arguments
+DEBUG=""
+SOURCE="kinect_rgb"
 
-# Check for rpicam-vid (Pi 5 / Bullseye+)
-if command -v rpicam-vid &> /dev/null; then
-    CMD="rpicam-vid"
-elif command -v libcamera-vid &> /dev/null; then
-    CMD="libcamera-vid"
-else
-    echo "Error: rpicam-vid or libcamera-vid not found."
-    exit 1
-fi
-
-# Stream H.264 via HTTP (Hosting)
-# -t 0: Run forever
-# --inline: Insert SPS/PPS headers for stream recovery
-# --width 1280 --height 720: 720p
-# --framerate 10: Low framerate to reduce bandwidth/lag
-# --bitrate 1000000: 1Mbps
-# --g 10: Intra-frame every 10 frames (1 sec) for faster recovery
-# --flush: Flush output buffers immediately
-# Pipe to ffmpeg to host as HTTP stream for better Unity compatibility
-# Unity VideoPlayer prefers HTTP over raw TCP.
-# Loop to auto-restart the stream when a client disconnects (ffmpeg exits)
-while true; do
-    echo "Starting streaming pipeline..."
-    #$CMD -t 0 --inline --width 1280 --height 800 --framerate 24 --codec mjpeg -o - | ffmpeg -i - -f mjpeg -listen 1 http://0.0.0.0:$PORT
-    $CMD -t 0 --width 1280 --height 800 --framerate 24 --codec mjpeg -o - | ffmpeg -i - -c:v copy -f mjpeg tcp://0.0.0.0:$PORT?listen=1
-    echo "Stream ended (client disconnected?). Restarting in 1s..."
-    sleep 1
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --debug)
+            DEBUG="--debug"
+            shift
+            ;;
+        --source)
+            SOURCE="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
 done
+
+echo "=============================================="
+echo "Starting Video Multiplexer"
+echo "=============================================="
+echo "  Web Viewer: http://localhost:$PORT/"
+echo "  Stream:     http://localhost:$PORT/stream.mjpg"
+echo "  Control:    TCP port 5603"
+echo "  Source:     $SOURCE"
+echo "=============================================="
+
+# Start the unified video multiplexer
+exec python3 "$SCRIPT_DIR/video_multiplexer.py" --port $PORT --source "$SOURCE" $DEBUG
