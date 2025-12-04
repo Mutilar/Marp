@@ -2,6 +2,8 @@
 Description=Robot Video Stream
 After=network.target multi-user.target
 Wants=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -9,8 +11,6 @@ ExecStartPre=/bin/sleep 15
 ExecStart=WORKING_DIR/scripts/start-video-stream.sh
 Restart=on-failure
 RestartSec=10
-StartLimitIntervalSec=60
-StartLimitBurst=3
 User=root
 TimeoutStopSec=10
 KillMode=mixed

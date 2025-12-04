@@ -45,9 +45,8 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM EXIT
 
-# Clean up any existing processes
+# Clean up any existing processes (but not via systemctl to avoid deadlock when run as service)
 echo "Cleaning up existing processes..."
-systemctl stop video-stream.service 2>/dev/null
 pkill -f video_multiplexer.py 2>/dev/null
 pkill -f kinect_stream.py 2>/dev/null
 pkill -x rpicam-vid 2>/dev/null

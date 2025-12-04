@@ -63,8 +63,14 @@ except (ImportError, ValueError):
 try:
     import gi
     gi.require_version('Gtk', '3.0')
-    gi.require_version('AppIndicator3', '0.1')
-    from gi.repository import Gtk, AppIndicator3, GLib
+    from gi.repository import Gtk, GLib
+    # Try AyatanaAppIndicator3 first (Raspberry Pi OS / Debian), then fall back to AppIndicator3 (Ubuntu)
+    try:
+        gi.require_version('AyatanaAppIndicator3', '0.1')
+        from gi.repository import AyatanaAppIndicator3 as AppIndicator3
+    except ValueError:
+        gi.require_version('AppIndicator3', '0.1')
+        from gi.repository import AppIndicator3
     TRAY_AVAILABLE = True
 except (ImportError, ValueError):
     TRAY_AVAILABLE = False
