@@ -115,7 +115,8 @@ class StreamState:
         self.lock = threading.Lock()
         self.current_source = DEFAULT_SOURCE
         self.frame = None  # Current JPEG frame bytes
-        self.frame_event = threading.Event()
+        self.frame_id = 0  # Frame counter for clients to detect new frames
+        self.frame_condition = threading.Condition(self.lock)  # For proper multi-client notification
         self.running = True
         self.debug = False
         
@@ -479,11 +480,12 @@ def capture_thread():
                 
             # Update shared state
             if jpeg_bytes:
-                with state.lock:
+                with state.frame_condition:
                     state.frame = jpeg_bytes
+                    state.frame_id += 1
                     state.stats['frames_captured'] += 1
                     state.stats['last_frame_time'] = time.time()
-                state.frame_event.set()
+                    state.frame_condition.notify_all()  # Wake all waiting clients
                 
             # Rate limiting
             time.sleep(FRAME_INTERVAL)
@@ -734,14 +736,23 @@ class StreamHandler(BaseHTTPRequestHandler):
         with state.lock:
             state.stats['clients_connected'] += 1
             
+        last_frame_id = 0
+            
         try:
             while state.running:
-                # Wait for new frame
-                if not state.frame_event.wait(timeout=1.0):
-                    continue
+                # Wait for a new frame
+                with state.frame_condition:
+                    # Wait until we have a new frame (frame_id changed)
+                    while state.frame_id == last_frame_id and state.running:
+                        if not state.frame_condition.wait(timeout=1.0):
+                            # Timeout - check if still running
+                            continue
                     
-                with state.lock:
+                    if not state.running:
+                        break
+                        
                     frame = state.frame
+                    last_frame_id = state.frame_id
                     
                 if frame is None:
                     continue
@@ -759,8 +770,6 @@ class StreamHandler(BaseHTTPRequestHandler):
                         
                 except (BrokenPipeError, ConnectionResetError):
                     break
-                    
-                state.frame_event.clear()
                 
         finally:
             with state.lock:
