@@ -5,8 +5,8 @@ namespace Constants {
     constexpr int LED_GPIO = 18;                    // Set to -1 to disable the activity LED output.
     
     // Drive Motors
-    constexpr unsigned MOTOR_LEFT_ENABLE = 5;
-    constexpr unsigned MOTOR_LEFT_DIRECTION = 6;
+    constexpr unsigned MOTOR_LEFT_ENABLE = 6;
+    constexpr unsigned MOTOR_LEFT_DIRECTION = 5;
     constexpr unsigned MOTOR_LEFT_PULSE = 13;
     constexpr unsigned MOTOR_RIGHT_ENABLE = 19;
     constexpr unsigned MOTOR_RIGHT_DIRECTION = 26;

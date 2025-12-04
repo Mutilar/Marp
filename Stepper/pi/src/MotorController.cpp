@@ -89,12 +89,6 @@ void MotorController::worker(MotorState* motor) {
     while (running.load(std::memory_order_relaxed)) {
         int16_t speed = motor->targetSpeed.load(std::memory_order_relaxed);
         
-        // Debug: log speed changes for motor 1 (RIGHT)
-        if (motorIndex == 1 && speed != lastLoggedSpeed) {
-            std::cout << "[M" << motorIndex << "] speed=" << speed << std::endl;
-            lastLoggedSpeed = speed;
-        }
-        
         if (speed == 0) {
             if (motor->enabled) {
                 lgGpioWrite(hGpio, motor->pins.enable, !Constants::ENABLE_ACTIVE_LEVEL);

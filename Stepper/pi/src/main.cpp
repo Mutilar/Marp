@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
 
     while (running.load(std::memory_order_relaxed)) {
         // Read Inputs
-        int xScaled = scaleAxis(inputManager.getAxis(Constants::JOYSTICK_AXIS_X));
+        int xScaled = -scaleAxis(inputManager.getAxis(Constants::JOYSTICK_AXIS_X));
         int yScaled = -scaleAxis(inputManager.getAxis(Constants::JOYSTICK_AXIS_Y));
         int rxScaled = scaleAxis(inputManager.getAxis(Constants::JOYSTICK_AXIS_RX));
         int ryScaled = -scaleAxis(inputManager.getAxis(Constants::JOYSTICK_AXIS_RY));
@@ -65,9 +65,9 @@ int main(int argc, char* argv[]) {
         int panCommand = (std::abs(rxScaled) < Constants::JOYSTICK_DEADZONE) ? 0 : rxScaled;
         int tiltCommand = (std::abs(ryScaled) < Constants::JOYSTICK_DEADZONE) ? 0 : ryScaled;
 
-        // Mixing
-        int leftMixCommand = clamp(yCommandRaw + xCommandRaw, -512, 512);
-        int rightMixCommand = clamp(yCommandRaw - xCommandRaw, -512, 512);
+        // Mixing (X = forward/backward, Y = turning)
+        int leftMixCommand = clamp(xCommandRaw + yCommandRaw, -512, 512);
+        int rightMixCommand = clamp(xCommandRaw - yCommandRaw, -512, 512);
 
         // Update Motors
         motorController.setSpeed(MotorController::LEFT, commandToSpeed(leftMixCommand));
