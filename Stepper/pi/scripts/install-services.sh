@@ -1,5 +1,6 @@
 #!/bin/bash
 # Installs systemd services with correct paths
+# Also sets up desktop autostart for service monitor
 
 set -euo pipefail
 
@@ -27,6 +28,19 @@ if [ ! -d "$SERVICE_DIR" ]; then
     exit 1
 fi
 
+# Make scripts executable
+chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true
+chmod +x "$SCRIPT_DIR"/*.py 2>/dev/null || true
+
+# Install required Python packages for notifications
+echo "Checking Python dependencies..."
+apt-get install -y python3-gi gir1.2-notify-0.7 2>/dev/null || \
+    echo "Warning: Could not install notification dependencies"
+
+# Optional: For system tray support
+apt-get install -y gir1.2-appindicator3-0.1 2>/dev/null || \
+    echo "Note: AppIndicator not installed (tray icon won't work)"
+
 # List of services
 SERVICES=("softap.service" "stepper-controller.service" "video-stream.service")
 
@@ -51,7 +65,42 @@ done
 # Reload systemd once after all services are installed
 systemctl daemon-reload
 
+# Set up desktop autostart for service monitor (runs as user)
 echo ""
-echo "All services installed. They will start on next boot."
+echo "Setting up desktop autostart for service monitor..."
+AUTOSTART_DIR="/home/marp/.config/autostart"
+mkdir -p "$AUTOSTART_DIR"
+
+# Copy and fix paths in desktop file
+DESKTOP_FILE="$SCRIPT_DIR/service-monitor.desktop"
+if [ -f "$DESKTOP_FILE" ]; then
+    # Update the path in the desktop file
+    sed "s|/home/marp/Marp/Stepper/pi|$PROJECT_DIR|g" "$DESKTOP_FILE" > "$AUTOSTART_DIR/service-monitor.desktop"
+    chown marp:marp "$AUTOSTART_DIR/service-monitor.desktop"
+    chmod 644 "$AUTOSTART_DIR/service-monitor.desktop"
+    echo "Desktop autostart installed."
+else
+    echo "Warning: Desktop file not found: $DESKTOP_FILE"
+fi
+
+echo ""
+echo "=============================================="
+echo "Installation Complete!"
+echo "=============================================="
+echo ""
+echo "Installed services:"
+for SERVICE in "${SERVICES[@]}"; do
+    echo "  • ${SERVICE%.service}"
+done
+echo ""
+echo "Desktop monitor: Will start automatically on login"
+echo ""
+echo "All services will start on next boot."
 echo "To start immediately, run:"
-echo "  systemctl start softap stepper-controller video-stream"
+echo "  sudo systemctl start softap stepper-controller video-stream"
+echo ""
+echo "To check status:"
+echo "  python3 $SCRIPT_DIR/service-monitor.py --once"
+echo ""
+echo "To view boot log:"
+echo "  cat /tmp/boot-status.log"

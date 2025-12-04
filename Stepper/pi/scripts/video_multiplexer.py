@@ -63,6 +63,10 @@ except ImportError:
     print("Warning: freenect not available. Kinect sources will be disabled.")
     FREENECT_AVAILABLE = False
 
+# Runtime Kinect availability (may be False even if freenect imported)
+KINECT_AVAILABLE = FREENECT_AVAILABLE
+KINECT_SOURCES = ['kinect_rgb', 'kinect_ir', 'kinect_depth']
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -71,8 +75,18 @@ STREAM_PORT = 5600
 CONTROL_PORT = 5603
 
 # Available video sources
-SOURCES = ['kinect_rgb', 'kinect_ir', 'kinect_depth', 'picam']
-DEFAULT_SOURCE = 'kinect_rgb'
+ALL_SOURCES = ['kinect_rgb', 'kinect_ir', 'kinect_depth', 'picam']
+DEFAULT_SOURCE = 'picam' if not KINECT_AVAILABLE else 'kinect_rgb'
+
+# SOURCES will be dynamically set based on hardware availability
+def get_available_sources():
+    """Return list of currently available sources"""
+    if KINECT_AVAILABLE:
+        return ALL_SOURCES[:]
+    else:
+        return ['picam']
+
+SOURCES = get_available_sources()
 
 # Stream settings
 JPEG_QUALITY = 70          # 1-100, higher = better quality, more bandwidth
@@ -136,6 +150,45 @@ class KinectCapture:
     def __init__(self):
         self.current_mode = None
         self.lock = threading.Lock()
+        self.consecutive_failures = 0
+        self.max_failures = 5  # Mark as unavailable after this many consecutive failures
+        
+    def check_availability(self):
+        """Test if Kinect is actually connected and working"""
+        global KINECT_AVAILABLE, SOURCES
+        
+        if not FREENECT_AVAILABLE or not CV2_AVAILABLE:
+            KINECT_AVAILABLE = False
+            SOURCES = get_available_sources()
+            return False
+            
+        try:
+            # Try to get a single frame to test connection
+            data = freenect.sync_get_video(0, freenect.VIDEO_RGB)
+            if data is not None:
+                KINECT_AVAILABLE = True
+                SOURCES = get_available_sources()
+                self.consecutive_failures = 0
+                return True
+        except Exception as e:
+            if state.debug:
+                print(f"Kinect availability check failed: {e}")
+        
+        KINECT_AVAILABLE = False
+        SOURCES = get_available_sources()
+        return False
+        
+    def _mark_unavailable(self):
+        """Mark Kinect as unavailable and switch to picam"""
+        global KINECT_AVAILABLE, SOURCES
+        
+        KINECT_AVAILABLE = False
+        SOURCES = get_available_sources()
+        
+        # Auto-switch to picam if currently on a Kinect source
+        if state.current_source in KINECT_SOURCES:
+            print(f"Kinect unavailable, auto-switching from {state.current_source} to picam")
+            state.current_source = 'picam'
         
     def get_frame(self, mode, scale_factor=1.0):
         """Get a frame from Kinect in the specified mode.
@@ -147,7 +200,7 @@ class KinectCapture:
         Returns:
             numpy array (BGR format ready for cv2) or None
         """
-        if not FREENECT_AVAILABLE or not CV2_AVAILABLE:
+        if not FREENECT_AVAILABLE or not CV2_AVAILABLE or not KINECT_AVAILABLE:
             return None
             
         try:
@@ -155,6 +208,9 @@ class KinectCapture:
                 if mode == 'rgb':
                     data = freenect.sync_get_video(0, freenect.VIDEO_RGB)
                     if data is None:
+                        self.consecutive_failures += 1
+                        if self.consecutive_failures >= self.max_failures:
+                            self._mark_unavailable()
                         return None
                     frame = data[0]
                     # Convert RGB to BGR for OpenCV
@@ -163,6 +219,9 @@ class KinectCapture:
                 elif mode == 'ir':
                     data = freenect.sync_get_video(0, freenect.VIDEO_IR_8BIT)
                     if data is None:
+                        self.consecutive_failures += 1
+                        if self.consecutive_failures >= self.max_failures:
+                            self._mark_unavailable()
                         return None
                     frame = data[0]
                     # IR is grayscale, convert to BGR
@@ -171,6 +230,9 @@ class KinectCapture:
                 elif mode == 'depth':
                     data = freenect.sync_get_depth()
                     if data is None:
+                        self.consecutive_failures += 1
+                        if self.consecutive_failures >= self.max_failures:
+                            self._mark_unavailable()
                         return None
                     frame = data[0]
                     # Normalize depth and apply colormap
@@ -179,6 +241,9 @@ class KinectCapture:
                     frame = cv2.applyColorMap(frame, cv2.COLORMAP_JET)
                 else:
                     return None
+                
+                # Success - reset failure counter
+                self.consecutive_failures = 0
                     
                 # Apply scaling if needed
                 if scale_factor != 1.0 and frame is not None:
@@ -192,6 +257,9 @@ class KinectCapture:
         except Exception as e:
             if state.debug:
                 print(f"Kinect capture error ({mode}): {e}")
+            self.consecutive_failures += 1
+            if self.consecutive_failures >= self.max_failures:
+                self._mark_unavailable()
             return None
             
         return None
@@ -510,6 +578,8 @@ class StreamHandler(BaseHTTPRequestHandler):
         }}
         button:hover {{ background: #0f3460; }}
         button.active {{ background: #00d9ff; color: #000; }}
+        button:disabled {{ background: #333; color: #666; cursor: not-allowed; }}
+        button:disabled:hover {{ background: #333; }}
         select, input[type="range"] {{
             background: #0f3460;
             color: #eee;
@@ -574,6 +644,7 @@ class StreamHandler(BaseHTTPRequestHandler):
         
         <div class="status" id="status">
             Source: <span id="current-source">loading...</span> | 
+            Kinect: <span id="kinect-status">-</span> |
             Resolution: <span id="resolution">-</span> | 
             Quality: <span id="jpeg-quality">-</span> |
             Frames: <span id="frames">0</span> |
@@ -609,6 +680,22 @@ class StreamHandler(BaseHTTPRequestHandler):
                     document.getElementById('jpeg-quality').textContent = data.jpeg_quality;
                     document.getElementById('frames').textContent = data.frames_captured;
                     document.getElementById('clients').textContent = data.clients_connected;
+                    
+                    // Show Kinect status
+                    let kinectStatus = document.getElementById('kinect-status');
+                    if (data.kinect_available) {{
+                        kinectStatus.textContent = 'OK';
+                        kinectStatus.style.color = '#00ff00';
+                    }} else {{
+                        kinectStatus.textContent = 'N/A';
+                        kinectStatus.style.color = '#ff6666';
+                    }}
+                    
+                    // Enable/disable Kinect buttons based on availability
+                    ['kinect_rgb', 'kinect_ir', 'kinect_depth'].forEach(src => {{
+                        let btn = document.getElementById('btn-' + src);
+                        if (btn) btn.disabled = !data.kinect_available;
+                    }});
                     
                     // Sync UI controls
                     document.getElementById('quality').value = data.jpeg_quality;
@@ -696,6 +783,7 @@ class StreamHandler(BaseHTTPRequestHandler):
             data = {
                 'source': state.current_source,
                 'available_sources': SOURCES,
+                'kinect_available': KINECT_AVAILABLE,
                 'resolution': resolution,
                 'jpeg_quality': state.jpeg_quality,
                 'scale_factor': state.scale_factor,
@@ -727,7 +815,13 @@ class StreamHandler(BaseHTTPRequestHandler):
                 # Handle source switch
                 source = params.get('source', '')
                 if source:
-                    if source in SOURCES:
+                    if source in ALL_SOURCES:
+                        # Check if trying to switch to Kinect when unavailable
+                        if source in KINECT_SOURCES and not KINECT_AVAILABLE:
+                            self.send_response(400)
+                            self.end_headers()
+                            self.wfile.write(f'ERROR: Kinect unavailable. Only picam is available.\n'.encode())
+                            return
                         state.current_source = source
                         response_parts.append(f"source={source}")
                     else:
@@ -857,10 +951,14 @@ def handle_control_client(client):
             cmd_lower = cmd.lower()
             parts = cmd.split()
             
-            if cmd_lower in SOURCES:
-                old_source = state.current_source
-                state.current_source = cmd_lower
-                client.send(f"OK: Switched from {old_source} to {cmd_lower}\n> ".encode())
+            if cmd_lower in ALL_SOURCES:
+                # Check if trying to switch to Kinect when unavailable
+                if cmd_lower in KINECT_SOURCES and not KINECT_AVAILABLE:
+                    client.send(b"ERROR: Kinect unavailable. Only picam is available.\n> ")
+                else:
+                    old_source = state.current_source
+                    state.current_source = cmd_lower
+                    client.send(f"OK: Switched from {old_source} to {cmd_lower}\n> ".encode())
                 
             elif parts and parts[0].lower() == 'quality':
                 if len(parts) == 2:
@@ -968,10 +1066,12 @@ def signal_handler(sig, frame):
         _http_server.shutdown()
 
 def main():
+    global KINECT_AVAILABLE, SOURCES
+    
     parser = argparse.ArgumentParser(description='Unified Video Multiplexer')
     parser.add_argument('--debug', action='store_true', help='Enable debug output')
-    parser.add_argument('--source', default=DEFAULT_SOURCE, 
-                        choices=SOURCES, help='Initial video source')
+    parser.add_argument('--source', default=None, 
+                        choices=ALL_SOURCES, help='Initial video source')
     parser.add_argument('--port', type=int, default=STREAM_PORT,
                         help='HTTP stream port')
     parser.add_argument('--quality', type=int, default=JPEG_QUALITY,
@@ -984,17 +1084,32 @@ def main():
     args = parser.parse_args()
     
     state.debug = args.debug
-    state.current_source = args.source
     state.jpeg_quality = max(1, min(100, args.quality))
     state.scale_factor = max(0.25, min(2.0, args.scale))
     state.picam_preset = args.picam_res
+    
+    # Check if Kinect is actually available at startup
+    print("Checking Kinect availability...")
+    kinect_ok = kinect.check_availability()
+    
+    # Determine initial source
+    requested_source = args.source
+    if requested_source is None:
+        # No source specified, use default based on availability
+        requested_source = 'kinect_rgb' if KINECT_AVAILABLE else 'picam'
+    elif requested_source in KINECT_SOURCES and not KINECT_AVAILABLE:
+        # Requested Kinect source but Kinect unavailable
+        print(f"Warning: Requested source '{requested_source}' unavailable, defaulting to picam")
+        requested_source = 'picam'
+    
+    state.current_source = requested_source
     
     # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
     # Calculate initial resolution for display
-    if args.source == 'picam':
+    if state.current_source == 'picam':
         p = PICAM_PRESETS[args.picam_res]
         res_str = f"{p['width']}x{p['height']}"
     else:
@@ -1008,13 +1123,15 @@ def main():
     print(f"  Stream URL:     http://0.0.0.0:{args.port}/stream.mjpg")
     print(f"  Web Viewer:     http://0.0.0.0:{args.port}/")
     print(f"  Control Port:   {CONTROL_PORT} (TCP)")
-    print(f"  Initial Source: {args.source}")
+    print(f"  Initial Source: {state.current_source}")
+    print(f"  Kinect:         {'Available' if KINECT_AVAILABLE else 'NOT AVAILABLE'}")
     print(f"  Resolution:     {res_str}")
     print(f"  JPEG Quality:   {state.jpeg_quality}")
     print(f"  Available:      {', '.join(SOURCES)}")
     print("=" * 60)
-    print("Resolution Notes:")
-    print(f"  Kinect: 640x480 native (scale: {args.scale}x -> {int(640*args.scale)}x{int(480*args.scale)})")
+    if KINECT_AVAILABLE:
+        print("Resolution Notes:")
+        print(f"  Kinect: 640x480 native (scale: {args.scale}x -> {int(640*args.scale)}x{int(480*args.scale)})")
     for name, p in PICAM_PRESETS.items():
         marker = " <--" if name == args.picam_res else ""
         print(f"  Pi Cam {name}: {p['width']}x{p['height']} @ {p['fps']}fps{marker}")
@@ -1024,8 +1141,8 @@ def main():
         print("ERROR: OpenCV required. Install with: pip install opencv-python")
         sys.exit(1)
         
-    if not FREENECT_AVAILABLE:
-        print("WARNING: Kinect sources disabled (freenect not available)")
+    if not KINECT_AVAILABLE:
+        print("INFO: Kinect not detected, using Pi Camera only")
         
     # Start capture thread
     capture_t = threading.Thread(target=capture_thread, daemon=True)

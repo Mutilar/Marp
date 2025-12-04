@@ -10,15 +10,37 @@
 
 SCRIPT_DIR="$(dirname "$0")"
 PORT=5600
+PYTHON_PID=""
 
 # Cleanup function
 cleanup() {
+    echo ""
     echo "Stopping video stream..."
+    
+    # Kill the Python process we started
+    if [[ -n "$PYTHON_PID" ]] && kill -0 "$PYTHON_PID" 2>/dev/null; then
+        kill -TERM "$PYTHON_PID" 2>/dev/null
+        # Wait briefly for graceful shutdown
+        for i in {1..10}; do
+            if ! kill -0 "$PYTHON_PID" 2>/dev/null; then
+                break
+            fi
+            sleep 0.2
+        done
+        # Force kill if still running
+        if kill -0 "$PYTHON_PID" 2>/dev/null; then
+            kill -9 "$PYTHON_PID" 2>/dev/null
+        fi
+    fi
+    
+    # Clean up any remaining child processes
     pkill -P $$ 2>/dev/null
     pkill -f video_multiplexer.py 2>/dev/null
     pkill -f kinect_stream.py 2>/dev/null
     pkill -x rpicam-vid 2>/dev/null
     pkill -x libcamera-vid 2>/dev/null
+    
+    echo "Stopped."
     exit 0
 }
 trap cleanup SIGINT SIGTERM EXIT
@@ -53,14 +75,19 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "=============================================="
+echo "==============================================" 
 echo "Starting Video Multiplexer"
-echo "=============================================="
+echo "==============================================" 
 echo "  Web Viewer: http://localhost:$PORT/"
 echo "  Stream:     http://localhost:$PORT/stream.mjpg"
 echo "  Control:    TCP port 5603"
 echo "  Source:     $SOURCE"
-echo "=============================================="
+echo "==============================================" 
 
-# Start the unified video multiplexer
-exec python3 "$SCRIPT_DIR/video_multiplexer.py" --port $PORT --source "$SOURCE" $DEBUG
+# Start the unified video multiplexer (no exec, so trap can work)
+python3 "$SCRIPT_DIR/video_multiplexer.py" --port $PORT --source "$SOURCE" $DEBUG &
+PYTHON_PID=$!
+
+# Wait for Python process and forward its exit code
+wait $PYTHON_PID
+exit $?
