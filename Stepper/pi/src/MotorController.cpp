@@ -69,6 +69,12 @@ uint64_t MotorController::steadyClockMs() {
 }
 
 void MotorController::worker(MotorState* motor) {
+    // Identify which motor this is for logging
+    int motorIndex = -1;
+    for (size_t i = 0; i < motors.size(); ++i) {
+        if (motors[i] == motor) { motorIndex = i; break; }
+    }
+    
     auto getTick = []() { return (uint32_t)(lguTimestamp() / 1000); };
     auto delayUs = [](uint32_t us) {
         if (us > 100) lguSleep(us / 1e6);
@@ -79,8 +85,16 @@ void MotorController::worker(MotorState* motor) {
     };
 
     uint32_t lastStepTick = getTick();
+    int16_t lastLoggedSpeed = 0;
     while (running.load(std::memory_order_relaxed)) {
         int16_t speed = motor->targetSpeed.load(std::memory_order_relaxed);
+        
+        // Debug: log speed changes for motor 1 (RIGHT)
+        if (motorIndex == 1 && speed != lastLoggedSpeed) {
+            std::cout << "[M" << motorIndex << "] speed=" << speed << std::endl;
+            lastLoggedSpeed = speed;
+        }
+        
         if (speed == 0) {
             if (motor->enabled) {
                 lgGpioWrite(hGpio, motor->pins.enable, !Constants::ENABLE_ACTIVE_LEVEL);

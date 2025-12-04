@@ -143,6 +143,10 @@ void InputManager::udpWorker() {
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
 
     std::cout << "UDP Listener started on port " << Constants::UDP_PORT << std::endl;
+    std::cout << "Waiting for UDP packets..." << std::endl;
+
+    char lastClientIp[INET_ADDRSTRLEN] = {0};
+    int packetCount = 0;
 
     while (running.load(std::memory_order_relaxed)) {
         socklen_t len = sizeof(cliaddr);
@@ -152,10 +156,26 @@ void InputManager::udpWorker() {
         uint64_t now = currentMs();
 
         if (n > 0) {
+            // Log new client connections
+            char clientIp[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &cliaddr.sin_addr, clientIp, INET_ADDRSTRLEN);
+            if (strcmp(clientIp, lastClientIp) != 0) {
+                std::cout << ">>> New UDP client connected: " << clientIp 
+                          << ":" << ntohs(cliaddr.sin_port) << std::endl;
+                strncpy(lastClientIp, clientIp, INET_ADDRSTRLEN);
+            }
+
+            packetCount++;
             lastNetworkUpdateMs = now;
             networkActive = true;
 
             buffer[n] = '\0';
+            
+            // Debug: print raw packet data every 20 packets
+            if (packetCount % 20 == 1) {
+                std::cout << "[UDP #" << packetCount << "] Raw (" << n << " bytes): " << buffer << std::endl;
+            }
+
             try {
                 auto j = json::parse(buffer);
                 if (j.contains("joysticks")) {

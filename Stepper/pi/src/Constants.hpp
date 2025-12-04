@@ -41,5 +41,5 @@ namespace Constants {
     constexpr int16_t MAX_SPEED_STEPS_PER_SEC = 100;
     constexpr unsigned PULSE_WIDTH_US = 20;
     constexpr unsigned STEP_LED_DURATION_MS = 50;
-    constexpr unsigned LOG_INTERVAL_MS = 100;
+    constexpr unsigned LOG_INTERVAL_MS = 1000;
 }
