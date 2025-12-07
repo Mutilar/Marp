@@ -35,7 +35,7 @@ cleanup() {
     
     # Clean up any remaining child processes
     pkill -P $$ 2>/dev/null
-    pkill -f video_multiplexer.py 2>/dev/null
+    pkill -f "video_multiplexer/__main__.py" 2>/dev/null
     pkill -f kinect_stream.py 2>/dev/null
     pkill -x rpicam-vid 2>/dev/null
     pkill -x libcamera-vid 2>/dev/null
@@ -47,7 +47,7 @@ trap cleanup SIGINT SIGTERM EXIT
 
 # Clean up any existing processes (but not via systemctl to avoid deadlock when run as service)
 echo "Cleaning up existing processes..."
-pkill -f video_multiplexer.py 2>/dev/null
+pkill -f "video_multiplexer/__main__.py" 2>/dev/null
 pkill -f kinect_stream.py 2>/dev/null
 pkill -x rpicam-vid 2>/dev/null
 pkill -x libcamera-vid 2>/dev/null
@@ -84,7 +84,9 @@ echo "  Source:     $SOURCE"
 echo "==============================================" 
 
 # Start the unified video multiplexer (no exec, so trap can work)
-python3 "$SCRIPT_DIR/video_multiplexer.py" --port $PORT --source "$SOURCE" $DEBUG &
+# Run as module from the scripts directory so relative imports work
+cd "$SCRIPT_DIR"
+python3 -m video_multiplexer --main-port $PORT --main-source "$SOURCE" $DEBUG &
 PYTHON_PID=$!
 
 # Wait for Python process and forward its exit code

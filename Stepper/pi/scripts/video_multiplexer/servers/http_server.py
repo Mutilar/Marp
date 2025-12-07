@@ -29,8 +29,14 @@ class MJPEGStreamHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/' or self.path == '/index.html':
             self.send_viewer_page()
+        elif self.path == '/dual' or self.path == '/dual.html':
+            self.send_dual_viewer_page()
         elif self.path == '/stream.mjpg' or self.path == '/stream':
             self.send_mjpeg_stream()
+        elif self.path.startswith('/stream/'):
+            # /stream/main or /stream/secondary
+            stream_name = self.path.split('/stream/')[-1].split('?')[0].rstrip('/')
+            self.send_mjpeg_stream(stream_name)
         elif self.path == '/status':
             self.send_status()
         elif self.path.startswith('/switch'):
@@ -138,11 +144,25 @@ class MJPEGStreamHandler(BaseHTTPRequestHandler):
         .stream-selector button.active {{
             background: #e94560;
         }}
+        .nav-links {{
+            margin-bottom: 15px;
+        }}
+        .nav-links a {{
+            color: #00d9ff;
+            text-decoration: none;
+            margin-right: 15px;
+        }}
+        .nav-links a:hover {{ text-decoration: underline; }}
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🎥 Video Multiplexer</h1>
+        
+        <div class="nav-links">
+            <a href="/">Single Stream View</a>
+            <a href="/dual">Dual View (Both Streams)</a>
+        </div>
         
         <div class="stream-selector">
             <label style="margin-right: 10px;">Viewing Stream:</label>
@@ -284,12 +304,194 @@ class MJPEGStreamHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', len(html))
         self.end_headers()
         self.wfile.write(html.encode())
+
+    def send_dual_viewer_page(self):
+        """Send HTML page with both streams side-by-side."""
+        streams = self.manager.list_streams()
         
-    def send_mjpeg_stream(self):
+        html = '''<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Multiplexer - Dual View</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            background: #1a1a2e; 
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { color: #00d9ff; margin-bottom: 10px; }
+        .container { max-width: 1800px; margin: 0 auto; }
+        .dual-view {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        @media (max-width: 1200px) {
+            .dual-view {
+                grid-template-columns: 1fr;
+            }
+        }
+        .stream-panel {
+            background: #16213e;
+            border-radius: 8px;
+            overflow: hidden;
+            padding: 15px;
+        }
+        .stream-panel h2 {
+            margin: 0 0 10px 0;
+            color: #00d9ff;
+            font-size: 18px;
+        }
+        .video-container {
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        img { 
+            width: 100%; 
+            display: block;
+        }
+        .controls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 13px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            background: #0f3460;
+            color: #eee;
+            transition: all 0.2s;
+        }
+        button:hover { background: #1a5490; }
+        button.active { background: #00d9ff; color: #000; }
+        button:disabled { background: #333; color: #666; cursor: not-allowed; }
+        .status-bar {
+            font-family: monospace;
+            font-size: 12px;
+            color: #aaa;
+        }
+        .status-bar span { color: #00d9ff; }
+        .nav-links {
+            margin-bottom: 15px;
+        }
+        .nav-links a {
+            color: #00d9ff;
+            text-decoration: none;
+            margin-right: 15px;
+        }
+        .nav-links a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Video Multiplexer - Dual View</h1>
+        
+        <div class="nav-links">
+            <a href="/">Single Stream View</a>
+            <a href="/dual">Dual View</a>
+        </div>
+        
+        <div class="dual-view">
+            <div class="stream-panel">
+                <h2>📹 Main Stream</h2>
+                <div class="video-container">
+                    <img id="stream-main" src="/stream/main" alt="Main Stream">
+                </div>
+                <div class="controls" id="controls-main">
+                    <button onclick="switchSource('main', 'kinect_rgb')" id="btn-main-kinect_rgb">Kinect RGB</button>
+                    <button onclick="switchSource('main', 'kinect_ir')" id="btn-main-kinect_ir">Kinect IR</button>
+                    <button onclick="switchSource('main', 'kinect_depth')" id="btn-main-kinect_depth">Kinect Depth</button>
+                    <button onclick="switchSource('main', 'picam')" id="btn-main-picam">Pi Camera</button>
+                </div>
+                <div class="status-bar">
+                    Source: <span id="source-main">-</span> | 
+                    Resolution: <span id="res-main">-</span> | 
+                    Frames: <span id="frames-main">0</span>
+                </div>
+            </div>
+            
+            <div class="stream-panel">
+                <h2>📹 Secondary Stream</h2>
+                <div class="video-container">
+                    <img id="stream-secondary" src="/stream/secondary" alt="Secondary Stream">
+                </div>
+                <div class="controls" id="controls-secondary">
+                    <button onclick="switchSource('secondary', 'kinect_rgb')" id="btn-secondary-kinect_rgb">Kinect RGB</button>
+                    <button onclick="switchSource('secondary', 'kinect_ir')" id="btn-secondary-kinect_ir">Kinect IR</button>
+                    <button onclick="switchSource('secondary', 'kinect_depth')" id="btn-secondary-kinect_depth">Kinect Depth</button>
+                    <button onclick="switchSource('secondary', 'picam')" id="btn-secondary-picam">Pi Camera</button>
+                </div>
+                <div class="status-bar">
+                    Source: <span id="source-secondary">-</span> | 
+                    Resolution: <span id="res-secondary">-</span> | 
+                    Frames: <span id="frames-secondary">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        function switchSource(streamId, source) {
+            fetch('/switch?source=' + source + '&stream=' + streamId);
+            // Update active button
+            document.querySelectorAll('#controls-' + streamId + ' button').forEach(b => b.classList.remove('active'));
+            document.getElementById('btn-' + streamId + '-' + source).classList.add('active');
+        }
+        
+        function updateStatus() {
+            fetch('/status')
+                .then(r => r.json())
+                .then(data => {
+                    ['main', 'secondary'].forEach(streamId => {
+                        const streamData = data.streams[streamId] || {};
+                        
+                        document.getElementById('source-' + streamId).textContent = streamData.source || '-';
+                        document.getElementById('res-' + streamId).textContent = streamData.resolution || '-';
+                        document.getElementById('frames-' + streamId).textContent = streamData.frames_captured || 0;
+                        
+                        // Disable Kinect buttons if not available
+                        ['kinect_rgb', 'kinect_ir', 'kinect_depth'].forEach(src => {
+                            let btn = document.getElementById('btn-' + streamId + '-' + src);
+                            if (btn) btn.disabled = !data.kinect_available;
+                        });
+                        
+                        // Update active button
+                        document.querySelectorAll('#controls-' + streamId + ' button').forEach(b => b.classList.remove('active'));
+                        if (streamData.source) {
+                            let btn = document.getElementById('btn-' + streamId + '-' + streamData.source);
+                            if (btn) btn.classList.add('active');
+                        }
+                    });
+                });
+        }
+        
+        setInterval(updateStatus, 2000);
+        updateStatus();
+    </script>
+</body>
+</html>'''
+        
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html')
+        self.send_header('Content-Length', len(html))
+        self.end_headers()
+        self.wfile.write(html.encode())
+        
+    def send_mjpeg_stream(self, stream_id: str = None):
         """Send continuous MJPEG stream."""
-        stream = self.manager.get_stream(self.stream_id)
+        if stream_id is None:
+            stream_id = self.stream_id
+        stream = self.manager.get_stream(stream_id)
         if stream is None:
-            self.send_error(404, f"Stream '{self.stream_id}' not found")
+            self.send_error(404, f"Stream '{stream_id}' not found")
             return
             
         self.send_response(200)
