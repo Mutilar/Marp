@@ -1,3 +1,6 @@
-[submodule "Stepper/pi/libfreenect"]
-	path = Stepper/pi/libfreenect
-	url = https://github.com/OpenKinect/libfreenect
+[submodule "MarpPi"]
+	path = MarpPi
+	url = https://github.com/Mutilar/MarpPi
+[submodule "MarpGamepad"]
+	path = MarpGamepad
+	url = https://github.com/Mutilar/MarpGamepad
