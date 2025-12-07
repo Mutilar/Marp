@@ -244,6 +244,72 @@ graph TB
 > Rendered with `scripts/render-mermaid.ps1 -OutputPath assets/diagrams/user-story.png -DiagramIndex 2` (also covered by `npm run render:mermaid`). Run the script after editing the Mermaid source above to refresh the image.
 </details>
 
+# Raspberry Pi Robot Controller
+
+This project runs on a Raspberry Pi 5 to control a 4-axis robot (2 Drive Steppers + 2 Turret Steppers). It supports control via a local USB Joystick (Xbox controller) or via UDP network packets (e.g., from a Steam Deck over Wi-Fi Direct). It also streams low-latency H.264 video to the connected client.
+
+## Features
+*   **Motor Control**: Drives 4 stepper motors using `lgpio` for precise timing.
+*   **Dual Input**: Seamlessly switches between local USB Joystick and Network UDP commands.
+*   **Safety**: Auto-stops motors if network connection is lost for >1 second.
+*   **Wi-Fi Direct**: Acts as a Group Owner (Hotspot) for easy field connection without a router.
+*   **Video Streaming**: Low-latency hardware-accelerated streaming via `rpicam-vid`.
+*   **Systemd Integration**: Auto-starts all services on boot.
+
+## System Architecture
+
+![Architecture](../../assets/diagrams/architecture.png)
+
+> Color key: **Blue**=Client, **Yellow**=Services, **Purple**=Hardware
+
+<details>
+<summary>Mermaid source</summary>
+<!-- mermaid-output: assets/diagrams/architecture.png -->
+```
+graph TD
+    %% Nodes
+    subgraph Client["Steam Deck (Client)"]
+        Unity["Unity App"]
+    end
+
+    subgraph Robot["Raspberry Pi 5"]
+        subgraph Services["Systemd Services"]
+            WifiService["wifi-direct.service<br/>(Network Setup)"]
+            StepService["stepper-controller.service<br/>(stepper_pi)"]
+            VidService["video-stream.service<br/>(rpicam-vid)"]
+        end
+        
+        subgraph Hardware
+            Camera["Pi Camera"]
+            Drivers["Stepper Drivers (x4)"]
+            Motors["Motors (L/R/Pan/Tilt)"]
+            LocalJoy["Local Joystick (Optional)"]
+        end
+    end
+
+    %% Network Interactions
+    Unity -.->|Wi-Fi Direct Connection| WifiService
+    Unity -->|UDP :5005<br/>JSON Command| StepService
+    VidService -->|UDP :5600<br/>H.264 Stream| Unity
+
+    %% Internal Interactions
+    StepService -->|GPIO| Drivers
+    Drivers --> Motors
+    LocalJoy -->|USB| StepService
+    Camera -->|CSI| VidService
+
+    %% Styling
+    classDef client fill:#d4e6f1,stroke:#2874a6,stroke-width:2px,color:black;
+    classDef service fill:#fcf3cf,stroke:#d4ac0d,stroke-width:2px,color:black;
+    classDef hardware fill:#ebdef0,stroke:#76448a,stroke-width:2px,color:black;
+    
+    class Unity client;
+    class WifiService,StepService,VidService service;
+    class Camera,Drivers,Motors,LocalJoy hardware;
+</details>
+
+# Bill of Materials (BOM)
+
 ## Control & Compute
 | Component | Role | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -273,6 +339,7 @@ graph TB
 | --- | --- | --- | --- | --- | --- | --- |
 | Lithium Battery | 24 | 5 (Continuous), 10 (Peak) | 240 Wh | 5.8" × 3.2" × 2.8" | [Aegis](https://www.aegisbattery.com/collections/24v-lithium-batteries/products/aegis-24v-10ah-lithium-ion-battery-pack-nmc-24v-lithium-battery) | 10 Ah NMC pack (≈240 Wh capacity). |
 | Battery Meter | 24 | ≤0.5 | ≤1.2 | 85mm x W: 42mm x H: 25mm | [Aegis](https://www.aegisbattery.com/collections/lithium-battery-meters-instruments/products/high-precision-battery-200a-watt-meter-and-power-analyzer) | Inline 200 A analyzer (voltage, amps, watts). |
+| USB-C Meter (x2) | 5 | ≤0.1 | ≤0.25 | 36.7mm x W: 23.7mm x H: 7.8mm | [POWER-Z](https://www.amazon.com/dp/B0C9Q3RT7Z) | Inline USB-C analyzer (voltage, amps, watts). |
 | Anderson PP45 → ring adapter | 24 | 20 | 480 | M10 ring | [Aegis](https://www.aegisbattery.com/collections/adapters/products/anderson-to-ring-terminal-adapter) | Quick battery-to-system interface. |
 | Circuit Breaker | 24 | 30 | 720 | 1.73"D x 1.93"W x 2.91"H | [Hamolar](https://www.amazon.com/gp/product/B095Z2F5F7/ref=ewc_pr_img_2?smid=A2TJVE0ZQTOQDP&th=1) | Main battery protection. |
 | Safety Switch | 24 | 16 | 384 | 4.88 x 2.24 x 2.09 | [Vonvoff](https://www.amazon.com/dp/B0CKXPNBB2?ref=ppx_yo2ov_dt_b_fed_asin_title&th=1) | Manual 24 V disconnect. |
