@@ -60,7 +60,6 @@ graph TD
     class Unity client;
     class WifiService,StepService,VidService service;
     class Camera,Drivers,Motors,LocalJoy hardware;
-```
 </details>
 
 ## Hardware Pinout (BCM GPIO)
