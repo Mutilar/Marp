@@ -37,8 +37,7 @@ graph TD
     PDAdapter["JacobsParts USB-C PD\n20 V USB-PD output"]
     Projector["NEBULA Capsule Air\nUSB-C PD (~45 W)"]
     Pi["Raspberry Pi 5 + Storage\n5 V, ~5.4 A"]
-    Kinect["Kinect & USB Peripherals\n5 V, ~2 A"]
-    LEDs["Addressable LEDs & Logic\n5 V, ~3 A"]
+    LEDs["WS2815 Addressable LEDs\n12 V, ~2.6 A"]
 
     Battery --> Breaker --> Switch --> Meter --> FuseBlock
     FuseBlock --> FuseStepper24 --> Stepper24Left
@@ -48,8 +47,8 @@ graph TD
     Buck12 --> Stepper12Tilt
     FuseBlock --> FusePD --> PDAdapter --> Projector
     FuseBlock --> FuseBuck5 --> Buck5 --> Pi
-    Pi --> Kinect
-    Pi --> LEDs
+    Buck12 --> LEDs
+    Pi -.->|Data signal| LEDs
     Pi --> Lasers
     Stepper24Left --> LeftWheel["Left Wheel KH56"]
     Stepper24Right --> RightWheel["Right Wheel KH56"]
@@ -62,7 +61,7 @@ graph TD
     class Stepper24Left,Stepper24Right,Stepper12Pan,Stepper12Tilt driver
     class Buck12,Buck5,PDAdapter converter
     class Pi compute
-    class Projector,Audio,Kinect,LEDs,Lasers peripheral
+    class Projector,Audio,LEDs,Lasers peripheral
     class LeftWheel,RightWheel,HeadPan,HeadTilt motor
 
     classDef battery fill:#69c06f,stroke:#2e8540,color:#0b3d17,stroke-width:2px
@@ -93,7 +92,7 @@ graph TD
 graph TB
     Pi["Raspberry Pi 5\nCore compute & control"]
     Projector["NEBULA Capsule Air\nHDMI sink"]
-    Kinect["Xbox Kinect Sensor\nUSB 3.0"]
+    Camera["Arducam IMX708\nCSI"]
     Controller["Xbox Controller Adapter\nUSB"]
 
     subgraph StepperDrivers24["24 V TB6600 Stepper Drivers"]
@@ -132,13 +131,14 @@ graph TB
     end
 
     Pi -->|HDMI| Projector
-    Pi -->|USB 3.0| Kinect
+    Camera -->|CSI| Pi
     Pi -->|USB| Controller
     Pi -->|Step / Dir / Enable| StepperL
     Pi -->|Step / Dir / Enable| StepperR
     Pi -->|Step / Dir / Enable| StepperPan
     Pi -->|Step / Dir / Enable| StepperTilt
     Pi -->|PWM / Dir| ShutterDriver
+    Pi -->|GPIO Data via level-shift| LEDs["WS2815 LED Strip\n144 px, 12 V"]
     Pi -->|Trigger| UltrasonicArray
     UltrasonicArray -->|Echo timing| Pi
     IRArray -->|Analog distance| Pi
@@ -165,7 +165,7 @@ graph TB
     ShutterDriver -->|Motor power| ShutterMotor
 
     class Pi compute
-    class Projector,Kinect,Controller,UltrasonicArray,IRArray,PanLimit,ShutterLimit peripheral
+    class Projector,Camera,Controller,UltrasonicArray,IRArray,PanLimit,ShutterLimit,LEDs peripheral
     class StepperL,StepperR,StepperPan,StepperTilt,ShutterDriver driver
     class MotorLeft,MotorRight,MotorPan,MotorTilt,ShutterMotor motor
 
@@ -204,7 +204,7 @@ graph TB
     subgraph Perception["Perception Inputs"]
         Ultrasonic["Ultrasonic Pair\nObstacle distance"]
         Lidar["2D LiDAR\nScan-based clearance"]
-        Kinect["Xbox Kinect + IMU\nPose / RGB / Depth"]
+        Arducam["Arducam IMX708\nRGB / autofocus"]
     end
 
     subgraph Expression["Expressive Outputs"]
@@ -212,7 +212,7 @@ graph TB
         Head["Head Presence\nPan / tilt gestures"]
         Projection["Projected Media\nWWT astronomical scenes"]
         Audio["Audio Atmosphere\nTTS / SFX / music"]
-        LEDs["Facial LEDs\nAddressable strip"]
+        LEDs["Facial LEDs\nWS2815 strip (144 px)"]
     end
 
     User -->|2D analog| XLeft
@@ -227,12 +227,11 @@ graph TB
 
     Ultrasonic -->|Stop zone alerts| Mobility
     Lidar -->|Clearance map| Mobility
-    Kinect -->|Gesture & presence cues| LEDs
-    Kinect -->|Audience detection| Audio
+    Arducam -->|Vision cues| LEDs
 
     class User actor
     class XLeft,XRight,XTrig,XFace,DLeft,DRight,DTrig,DMacro input
-    class Ultrasonic,Lidar,Kinect sensor
+    class Ultrasonic,Lidar,Arducam sensor
     class Mobility,Head,Projection,Audio,LEDs output
 
     classDef actor fill:#ffe29c,stroke:#d49f00,color:#7a5d00,stroke-width:1.5px
@@ -373,7 +372,6 @@ graph TD
 ### Vision & Interaction
 | Component | Function | Coverage / Resolution | Voltage (V) | Amperage (A) | Wattage (W) | Physical Dimensions (") | Link | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Xbox Kinect | Depth + RGB sensing, Pose detection | Wide FoV; structured light | 5 | ≤2 | ≤10 | 11" × 2.6" × 1.5" | [OpenKinect](https://github.com/OpenKinect/libfreenect) | Confirm Raspberry Pi compatibility or plan for companion compute. |
 | Mini Projector | Visual output | 720p (150 ANSI) | 5–20 (USB-C PD) | ≤2.25 | ≤45 | Ø2.7" × 5.5" | [NEBULA Capsule Air](https://www.amazon.com/dp/B0CWV1S7B4?ref=ppx_yo2ov_dt_b_fed_asin_title&th=1) | Built-in 34 Wh battery; integrate 45 W USB-C PD or leverage internal pack. |
 | Camera | Vision input | 12 MP, 75° FoV; autofocus | 5 | ≤0.5 | ≤2.5 | 1.50" × 1.50" × 0.71" (w/ adapter) | [Arducam](https://www.amazon.com/dp/B0C9PYCV9S?ref=ppx_yo2ov_dt_b_fed_asin_title) | IMX708 |
-| Addressable LED strip | Face ring | Pixel count TBD | 5 | ≤0.06 (per LED) | ≤0.3 (per 5 LEDs) | Flexible strip | — | Level-shift 3.3 V logic up to 5 V. |
+| BTF-LIGHTING WS2815 LED strip | Face ring (eyes, mouth) | 144 LEDs, individually addressable RGB | 12 | ≤2.6 (full white) | ≤31.7 | 3.2 ft × 0.47" (1 m × 12 mm), IP65 | [Amazon](https://www.amazon.com/dp/B07LG5VF73) | Upgraded WS2812B; dual-signal line; 5050 SMD; 12 V from Buck12 rail; data pin needs 3.3→5 V level-shift. |
